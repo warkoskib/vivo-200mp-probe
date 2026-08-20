@@ -2,44 +2,95 @@ package com.example.vivocamera2probe
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.ImageFormat
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.os.Bundle
+import android.view.View
+import android.widget.Button
+import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
 
+    private lateinit var statusText: TextView
     private lateinit var outputText: TextView
+    private lateinit var scanButton: Button
+
+    private val output = StringBuilder()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        outputText = TextView(this).apply {
-            textSize = 13f
-            setPadding(24, 24, 24, 24)
-        }
+        createInterface()
 
-        val scrollView = ScrollView(this)
-        scrollView.addView(outputText)
-        setContentView(scrollView)
+        statusText.text = "APP STARTED SUCCESSFULLY"
 
         if (ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.CAMERA
             ) != PackageManager.PERMISSION_GRANTED
         ) {
+            statusText.text = "Camera permission required..."
+
             ActivityCompat.requestPermissions(
                 this,
                 arrayOf(Manifest.permission.CAMERA),
                 100
             )
         } else {
-            runProbe()
+            statusText.text = "Ready. Press START CAMERA PROBE."
         }
+    }
+
+    private fun createInterface() {
+
+        val mainLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(30, 30, 30, 30)
+        }
+
+        statusText = TextView(this).apply {
+            textSize = 18f
+            text = "Starting..."
+            setPadding(0, 0, 0, 20)
+        }
+
+        scanButton = Button(this).apply {
+            text = "START CAMERA PROBE"
+
+            setOnClickListener {
+                startProbe()
+            }
+        }
+
+        outputText = TextView(this).apply {
+            textSize = 12f
+            setPadding(0, 25, 0, 25)
+            setTextIsSelectable(true)
+        }
+
+        val scrollView = ScrollView(this)
+        scrollView.addView(outputText)
+
+        mainLayout.addView(statusText)
+        mainLayout.addView(scanButton)
+
+        mainLayout.addView(
+            scrollView,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        )
+
+        setContentView(mainLayout)
     }
 
     override fun onRequestPermissionsResult(
@@ -47,484 +98,693 @@ class MainActivity : AppCompatActivity() {
         permissions: Array<out String>,
         grantResults: IntArray
     ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        super.onRequestPermissionsResult(
+            requestCode,
+            permissions,
+            grantResults
+        )
 
-        if (requestCode == 100 &&
+        if (
+            requestCode == 100 &&
             grantResults.isNotEmpty() &&
             grantResults[0] == PackageManager.PERMISSION_GRANTED
         ) {
-            runProbe()
+            statusText.text =
+                "Camera permission granted. Press START CAMERA PROBE."
         } else {
-            outputText.text = "Camera permission denied."
+            statusText.text =
+                "CAMERA PERMISSION DENIED"
         }
     }
 
-    private fun runProbe() {
+    private fun startProbe() {
 
-        val cameraManager =
-            getSystemService(CAMERA_SERVICE) as CameraManager
+        scanButton.isEnabled = false
 
-        val sb = StringBuilder()
+        output.clear()
 
-        sb.appendLine("VIVO HIDDEN CAMERA PROBE")
-        sb.appendLine("==============================")
-        sb.appendLine()
+        output.appendLine("VIVO CAMERA2 DEEP PROBE")
+        output.appendLine("==============================")
+        output.appendLine()
 
-        val normalIds = try {
-            cameraManager.cameraIdList.toList()
-        } catch (e: Exception) {
-            emptyList()
-        }
+        updateOutput()
 
-        sb.appendLine("ANDROID ADVERTISED CAMERA IDs")
-        sb.appendLine("------------------------------")
+        statusText.text = "Starting camera scan..."
 
-        if (normalIds.isEmpty()) {
-            sb.appendLine("None")
-        } else {
-            normalIds.forEach {
-                sb.appendLine("Camera ID: $it")
-            }
-        }
-
-        sb.appendLine()
-        sb.appendLine("==============================")
-        sb.appendLine("BRUTE FORCE CAMERA ID TEST")
-        sb.appendLine("==============================")
-        sb.appendLine()
-
-        val testIds = linkedSetOf<String>()
-
-        // Standard numeric IDs
-        for (i in 0..50) {
-            testIds.add(i.toString())
-        }
-
-        // Some common OEM / Qualcomm / MediaTek style IDs
-        val extraIds = listOf(
-            "100",
-            "101",
-            "102",
-            "103",
-            "104",
-            "105",
-            "200",
-            "201",
-            "202",
-            "203",
-            "20",
-            "21",
-            "22",
-            "23",
-            "30",
-            "31",
-            "32",
-            "40",
-            "41",
-            "50",
-            "51"
-        )
-
-        testIds.addAll(extraIds)
-
-        var discoveredCount = 0
-
-        for (id in testIds) {
+        thread {
 
             try {
 
-                val characteristics =
-                    cameraManager.getCameraCharacteristics(id)
+                val cameraManager =
+                    getSystemService(CAMERA_SERVICE) as CameraManager
 
-                discoveredCount++
+                // ----------------------------------------------------
+                // NORMAL CAMERA LIST
+                // ----------------------------------------------------
 
-                sb.appendLine("--------------------------------")
-                sb.appendLine("ACCESSIBLE CAMERA ID: $id")
+                appendLineSafe("")
+                appendLineSafe("==============================")
+                appendLineSafe("ANDROID CAMERA ID LIST")
+                appendLineSafe("==============================")
 
-                if (normalIds.contains(id)) {
-                    sb.appendLine("Status: ADVERTISED")
-                } else {
-                    sb.appendLine("*** Status: NOT IN cameraIdList ***")
-                    sb.appendLine("*** POSSIBLE HIDDEN CAMERA ***")
-                }
+                val normalIds = try {
+                    cameraManager.cameraIdList
+                } catch (e: Throwable) {
 
-                appendCameraInfo(
-                    sb,
-                    id,
-                    characteristics
-                )
-
-                sb.appendLine()
-
-            } catch (_: IllegalArgumentException) {
-
-                // Camera ID does not exist
-
-            } catch (e: Exception) {
-
-                sb.appendLine("--------------------------------")
-                sb.appendLine("CAMERA ID: $id")
-                sb.appendLine("Exists or responded, but access failed")
-                sb.appendLine("Error: ${e.javaClass.simpleName}")
-                sb.appendLine("Message: ${e.message}")
-                sb.appendLine()
-
-            }
-        }
-
-        sb.appendLine()
-        sb.appendLine("==============================")
-        sb.appendLine("RESULT")
-        sb.appendLine("==============================")
-        sb.appendLine()
-
-        sb.appendLine("Advertised cameras: ${normalIds.size}")
-        sb.appendLine("Accessible IDs found: $discoveredCount")
-
-        if (discoveredCount > normalIds.size) {
-            sb.appendLine()
-            sb.appendLine("*** HIDDEN CAMERA ID DETECTED ***")
-        } else {
-            sb.appendLine()
-            sb.appendLine("No additional hidden Camera2 IDs detected.")
-        }
-
-        outputText.text = sb.toString()
-    }
-
-    private fun appendCameraInfo(
-        sb: StringBuilder,
-        cameraId: String,
-        characteristics: CameraCharacteristics
-    ) {
-
-        val facing =
-            characteristics.get(
-                CameraCharacteristics.LENS_FACING
-            )
-
-        val facingName = when (facing) {
-            CameraCharacteristics.LENS_FACING_BACK -> "BACK"
-            CameraCharacteristics.LENS_FACING_FRONT -> "FRONT"
-            CameraCharacteristics.LENS_FACING_EXTERNAL -> "EXTERNAL"
-            else -> "UNKNOWN"
-        }
-
-        sb.appendLine("Facing: $facingName")
-
-        val hardwareLevel =
-            characteristics.get(
-                CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL
-            )
-
-        sb.appendLine(
-            "Hardware Level: ${
-                when (hardwareLevel) {
-                    CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY ->
-                        "LEGACY"
-
-                    CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED ->
-                        "LIMITED"
-
-                    CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_FULL ->
-                        "FULL"
-
-                    CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_3 ->
-                        "LEVEL 3"
-
-                    CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_EXTERNAL ->
-                        "EXTERNAL"
-
-                    else -> "UNKNOWN"
-                }
-            }"
-        )
-
-        val pixelArray =
-            characteristics.get(
-                CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE
-            )
-
-        if (pixelArray != null) {
-
-            val mp =
-                pixelArray.width *
-                        pixelArray.height /
-                        1_000_000.0
-
-            sb.appendLine(
-                "Pixel Array: ${pixelArray.width} x ${pixelArray.height}"
-            )
-
-            sb.appendLine(
-                "Pixel Array MP: %.2f".format(mp)
-            )
-        }
-
-        val activeArray =
-            characteristics.get(
-                CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE
-            )
-
-        if (activeArray != null) {
-
-            val mp =
-                activeArray.width() *
-                        activeArray.height() /
-                        1_000_000.0
-
-            sb.appendLine(
-                "Active Array: ${activeArray.width()} x ${activeArray.height()}"
-            )
-
-            sb.appendLine(
-                "Active Array MP: %.2f".format(mp)
-            )
-        }
-
-        val physicalSize =
-            characteristics.get(
-                CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE
-            )
-
-        if (physicalSize != null) {
-
-            sb.appendLine(
-                "Sensor Size: %.2f x %.2f mm".format(
-                    physicalSize.width,
-                    physicalSize.height
-                )
-            )
-        }
-
-        val focalLengths =
-            characteristics.get(
-                CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS
-            )
-
-        if (focalLengths != null) {
-            sb.appendLine(
-                "Focal Lengths: ${
-                    focalLengths.joinToString(", ") {
-                        "%.2f mm".format(it)
-                    }
-                }"
-            )
-        }
-
-        val physicalIds =
-            if (android.os.Build.VERSION.SDK_INT >=
-                android.os.Build.VERSION_CODES.P
-            ) {
-                characteristics.physicalCameraIds
-            } else {
-                emptySet()
-            }
-
-        sb.appendLine(
-            "Physical Camera IDs: ${
-                if (physicalIds.isEmpty())
-                    "NONE"
-                else
-                    physicalIds.joinToString(", ")
-            }"
-        )
-
-        val capabilities =
-            characteristics.get(
-                CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES
-            )
-
-        if (capabilities != null) {
-
-            sb.appendLine("Capabilities:")
-
-            capabilities.forEach {
-
-                val name = when (it) {
-
-                    CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_BACKWARD_COMPATIBLE ->
-                        "BACKWARD_COMPATIBLE"
-
-                    CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR ->
-                        "MANUAL_SENSOR"
-
-                    CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_POST_PROCESSING ->
-                        "MANUAL_POST_PROCESSING"
-
-                    CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW ->
-                        "RAW"
-
-                    CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_BURST_CAPTURE ->
-                        "BURST_CAPTURE"
-
-                    CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA ->
-                        "LOGICAL_MULTI_CAMERA"
-
-                    else ->
-                        "CAPABILITY $it"
-                }
-
-                sb.appendLine("  $name")
-            }
-        }
-
-        val map =
-            characteristics.get(
-                CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP
-            )
-
-        if (map != null) {
-
-            val jpegSizes =
-                map.getOutputSizes(
-                    android.graphics.ImageFormat.JPEG
-                )
-
-            if (jpegSizes != null &&
-                jpegSizes.isNotEmpty()
-            ) {
-
-                val largest =
-                    jpegSizes.maxByOrNull {
-                        it.width.toLong() *
-                                it.height.toLong()
-                    }
-
-                if (largest != null) {
-
-                    val mp =
-                        largest.width *
-                                largest.height /
-                                1_000_000.0
-
-                    sb.appendLine(
-                        "Largest JPEG: ${largest.width} x ${largest.height}"
+                    appendLineSafe(
+                        "ERROR getting camera list:"
                     )
 
-                    sb.appendLine(
-                        "Largest JPEG MP: %.2f".format(mp)
+                    appendLineSafe(
+                        "${e.javaClass.simpleName}: ${e.message}"
                     )
 
-                    if (mp >= 40) {
-                        sb.appendLine(
-                            "*** HIGH RESOLUTION SENSOR PATH FOUND ***"
-                        )
-                    }
-
-                    if (mp >= 100) {
-                        sb.appendLine(
-                            "*** 100 MP+ CAMERA MODE FOUND ***"
-                        )
-                    }
+                    emptyArray()
                 }
-            }
-        }
 
-        // Dump vendor characteristic keys
-        sb.appendLine()
-        sb.appendLine("Vendor / Characteristic Keys:")
+                appendLineSafe(
+                    "Number advertised: ${normalIds.size}"
+                )
 
-        try {
+                for (id in normalIds) {
 
-            val keys =
-                characteristics.keys
+                    appendLineSafe("")
+                    appendLineSafe("ADVERTISED CAMERA ID: $id")
 
-            for (key in keys) {
-
-                val name =
-                    key.name
-
-                if (
-                    name.contains(
-                        "vendor",
-                        ignoreCase = true
-                    ) ||
-                    name.contains(
-                        "vivo",
-                        ignoreCase = true
-                    ) ||
-                    name.contains(
-                        "sensor",
-                        ignoreCase = true
-                    ) ||
-                    name.contains(
-                        "pixel",
-                        ignoreCase = true
-                    ) ||
-                    name.contains(
-                        "resolution",
-                        ignoreCase = true
-                    ) ||
-                    name.contains(
-                        "quad",
-                        ignoreCase = true
-                    ) ||
-                    name.contains(
-                        "bin",
-                        ignoreCase = true
-                    ) ||
-                    name.contains(
-                        "super",
-                        ignoreCase = true
-                    ) ||
-                    name.contains(
-                        "high",
-                        ignoreCase = true
+                    analyzeCamera(
+                        cameraManager,
+                        id,
+                        true
                     )
-                ) {
+                }
 
-                    sb.appendLine("  $name")
+                // ----------------------------------------------------
+                // PHYSICAL IDS
+                // ----------------------------------------------------
+
+                appendLineSafe("")
+                appendLineSafe("==============================")
+                appendLineSafe("PHYSICAL CAMERA ID SEARCH")
+                appendLineSafe("==============================")
+
+                val physicalIds =
+                    linkedSetOf<String>()
+
+                for (logicalId in normalIds) {
 
                     try {
 
-                        val value =
-                            characteristics.get(key)
-
-                        if (value != null) {
-                            sb.appendLine(
-                                "      = ${formatValue(value)}"
+                        val characteristics =
+                            cameraManager.getCameraCharacteristics(
+                                logicalId
                             )
+
+                        if (
+                            android.os.Build.VERSION.SDK_INT >=
+                            android.os.Build.VERSION_CODES.P
+                        ) {
+
+                            val ids =
+                                characteristics.physicalCameraIds
+
+                            for (id in ids) {
+                                physicalIds.add(id)
+                            }
                         }
 
-                    } catch (_: Exception) {
+                    } catch (e: Throwable) {
+
+                        appendLineSafe(
+                            "Could not inspect physical IDs for $logicalId"
+                        )
                     }
+                }
+
+                if (physicalIds.isEmpty()) {
+
+                    appendLineSafe(
+                        "No physical camera IDs advertised."
+                    )
+
+                } else {
+
+                    appendLineSafe(
+                        "Physical IDs found: ${
+                            physicalIds.joinToString(", ")
+                        }"
+                    )
+
+                    for (id in physicalIds) {
+
+                        appendLineSafe("")
+                        appendLineSafe(
+                            "PHYSICAL CAMERA ID: $id"
+                        )
+
+                        analyzeCamera(
+                            cameraManager,
+                            id,
+                            false
+                        )
+                    }
+                }
+
+                // ----------------------------------------------------
+                // HIDDEN NUMERIC ID TEST
+                // ----------------------------------------------------
+
+                appendLineSafe("")
+                appendLineSafe("==============================")
+                appendLineSafe("HIDDEN CAMERA ID TEST")
+                appendLineSafe("==============================")
+                appendLineSafe(
+                    "Testing numeric IDs 0 through 30..."
+                )
+
+                var hiddenCount = 0
+
+                for (number in 0..30) {
+
+                    val id = number.toString()
+
+                    runOnUiThread {
+                        statusText.text =
+                            "Testing Camera ID $id..."
+                    }
+
+                    if (
+                        normalIds.contains(id) ||
+                        physicalIds.contains(id)
+                    ) {
+                        continue
+                    }
+
+                    try {
+
+                        cameraManager.getCameraCharacteristics(
+                            id
+                        )
+
+                        hiddenCount++
+
+                        appendLineSafe("")
+                        appendLineSafe(
+                            "*** HIDDEN CAMERA FOUND ***"
+                        )
+
+                        appendLineSafe(
+                            "CAMERA ID: $id"
+                        )
+
+                        analyzeCamera(
+                            cameraManager,
+                            id,
+                            false
+                        )
+
+                    } catch (_: IllegalArgumentException) {
+
+                        // ID does not exist
+
+                    } catch (_: SecurityException) {
+
+                        appendLineSafe(
+                            "ID $id = ACCESS BLOCKED BY ANDROID"
+                        )
+
+                    } catch (e: Throwable) {
+
+                        // Important:
+                        // don't crash the entire app if Vivo
+                        // returns an unusual vendor exception.
+
+                        appendLineSafe(
+                            "ID $id response: " +
+                                    e.javaClass.simpleName
+                        )
+                    }
+                }
+
+                appendLineSafe("")
+                appendLineSafe("==============================")
+                appendLineSafe("SCAN COMPLETE")
+                appendLineSafe("==============================")
+
+                appendLineSafe(
+                    "Advertised cameras: ${normalIds.size}"
+                )
+
+                appendLineSafe(
+                    "Physical IDs: ${physicalIds.size}"
+                )
+
+                appendLineSafe(
+                    "Additional accessible hidden IDs: $hiddenCount"
+                )
+
+                runOnUiThread {
+
+                    statusText.text = "SCAN COMPLETE"
+
+                    scanButton.isEnabled = true
+
+                    scanButton.text = "RUN SCAN AGAIN"
+                }
+
+            } catch (e: Throwable) {
+
+                appendLineSafe("")
+                appendLineSafe("==============================")
+                appendLineSafe("FATAL SCAN ERROR")
+                appendLineSafe("==============================")
+
+                appendLineSafe(
+                    e.javaClass.name
+                )
+
+                appendLineSafe(
+                    e.message ?: "No error message"
+                )
+
+                runOnUiThread {
+
+                    statusText.text =
+                        "SCAN STOPPED - SEE ERROR BELOW"
+
+                    scanButton.isEnabled = true
+                }
+            }
+        }
+    }
+
+    private fun analyzeCamera(
+        cameraManager: CameraManager,
+        cameraId: String,
+        advertised: Boolean
+    ) {
+
+        try {
+
+            val c =
+                cameraManager.getCameraCharacteristics(
+                    cameraId
+                )
+
+            appendLineSafe("------------------------------")
+
+            appendLineSafe(
+                "Camera ID: $cameraId"
+            )
+
+            appendLineSafe(
+                "Advertised: $advertised"
+            )
+
+            // ------------------------------------------------
+            // FACING
+            // ------------------------------------------------
+
+            val facing =
+                c.get(
+                    CameraCharacteristics.LENS_FACING
+                )
+
+            val facingText =
+                when (facing) {
+
+                    CameraCharacteristics.LENS_FACING_BACK ->
+                        "BACK"
+
+                    CameraCharacteristics.LENS_FACING_FRONT ->
+                        "FRONT"
+
+                    CameraCharacteristics.LENS_FACING_EXTERNAL ->
+                        "EXTERNAL"
+
+                    else ->
+                        "UNKNOWN"
+                }
+
+            appendLineSafe(
+                "Facing: $facingText"
+            )
+
+            // ------------------------------------------------
+            // SENSOR PIXEL ARRAY
+            // ------------------------------------------------
+
+            val pixelArray =
+                c.get(
+                    CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE
+                )
+
+            if (pixelArray != null) {
+
+                val mp =
+                    pixelArray.width.toDouble() *
+                            pixelArray.height.toDouble() /
+                            1_000_000.0
+
+                appendLineSafe(
+                    "Sensor Pixel Array: " +
+                            "${pixelArray.width} x " +
+                            "${pixelArray.height}"
+                )
+
+                appendLineSafe(
+                    "Sensor Pixel Array MP: " +
+                            "%.2f".format(mp)
+                )
+            }
+
+            // ------------------------------------------------
+            // ACTIVE ARRAY
+            // ------------------------------------------------
+
+            val activeArray =
+                c.get(
+                    CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE
+                )
+
+            if (activeArray != null) {
+
+                val mp =
+                    activeArray.width().toDouble() *
+                            activeArray.height().toDouble() /
+                            1_000_000.0
+
+                appendLineSafe(
+                    "Active Array: " +
+                            "${activeArray.width()} x " +
+                            "${activeArray.height()}"
+                )
+
+                appendLineSafe(
+                    "Active Array MP: " +
+                            "%.2f".format(mp)
+                )
+            }
+
+            // ------------------------------------------------
+            // SENSOR SIZE
+            // ------------------------------------------------
+
+            val sensorSize =
+                c.get(
+                    CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE
+                )
+
+            if (sensorSize != null) {
+
+                appendLineSafe(
+                    "Physical Sensor: " +
+                            "%.2f x %.2f mm".format(
+                                sensorSize.width,
+                                sensorSize.height
+                            )
+                )
+            }
+
+            // ------------------------------------------------
+            // FOCAL LENGTH
+            // ------------------------------------------------
+
+            val focalLengths =
+                c.get(
+                    CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS
+                )
+
+            if (focalLengths != null) {
+
+                appendLineSafe(
+                    "Focal Lengths: " +
+                            focalLengths.joinToString(
+                                ", "
+                            ) {
+                                "%.2f mm".format(it)
+                            }
+                )
+            }
+
+            // ------------------------------------------------
+            // PHYSICAL CAMERA IDS
+            // ------------------------------------------------
+
+            if (
+                android.os.Build.VERSION.SDK_INT >=
+                android.os.Build.VERSION_CODES.P
+            ) {
+
+                val ids =
+                    c.physicalCameraIds
+
+                if (ids.isEmpty()) {
+
+                    appendLineSafe(
+                        "Physical Camera IDs: NONE"
+                    )
+
+                } else {
+
+                    appendLineSafe(
+                        "Physical Camera IDs: " +
+                                ids.joinToString(", ")
+                    )
                 }
             }
 
-        } catch (e: Exception) {
+            // ------------------------------------------------
+            // CAPABILITIES
+            // ------------------------------------------------
 
-            sb.appendLine(
-                "Could not enumerate keys: ${e.message}"
+            val capabilities =
+                c.get(
+                    CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES
+                )
+
+            if (capabilities != null) {
+
+                appendLineSafe(
+                    "Capabilities:"
+                )
+
+                for (cap in capabilities) {
+
+                    val capName =
+                        when (cap) {
+
+                            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_BACKWARD_COMPATIBLE ->
+                                "BACKWARD_COMPATIBLE"
+
+                            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR ->
+                                "MANUAL_SENSOR"
+
+                            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_POST_PROCESSING ->
+                                "MANUAL_POST_PROCESSING"
+
+                            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW ->
+                                "RAW"
+
+                            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_BURST_CAPTURE ->
+                                "BURST_CAPTURE"
+
+                            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA ->
+                                "LOGICAL_MULTI_CAMERA"
+
+                            else ->
+                                "CAPABILITY $cap"
+                        }
+
+                    appendLineSafe(
+                        "  $capName"
+                    )
+                }
+            }
+
+            // ------------------------------------------------
+            // OUTPUT RESOLUTIONS
+            // ------------------------------------------------
+
+            val map =
+                c.get(
+                    CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP
+                )
+
+            if (map != null) {
+
+                checkOutputFormat(
+                    map,
+                    ImageFormat.JPEG,
+                    "JPEG"
+                )
+
+                checkOutputFormat(
+                    map,
+                    ImageFormat.YUV_420_888,
+                    "YUV"
+                )
+
+                checkOutputFormat(
+                    map,
+                    ImageFormat.RAW_SENSOR,
+                    "RAW_SENSOR"
+                )
+            }
+
+            // ------------------------------------------------
+            // CHARACTERISTIC KEY SEARCH
+            // ------------------------------------------------
+
+            appendLineSafe("")
+            appendLineSafe(
+                "Interesting Camera Keys:"
+            )
+
+            val searchWords =
+                listOf(
+                    "vivo",
+                    "vendor",
+                    "pixel",
+                    "quad",
+                    "remosaic",
+                    "resolution",
+                    "high",
+                    "super",
+                    "binning",
+                    "sensor",
+                    "raw"
+                )
+
+            var interestingKeys = 0
+
+            try {
+
+                for (key in c.keys) {
+
+                    val name = key.name
+
+                    if (
+                        searchWords.any {
+                            name.contains(
+                                it,
+                                ignoreCase = true
+                            )
+                        }
+                    ) {
+
+                        interestingKeys++
+
+                        appendLineSafe(
+                            "  $name"
+                        )
+                    }
+                }
+
+            } catch (e: Throwable) {
+
+                appendLineSafe(
+                    "Could not enumerate keys."
+                )
+            }
+
+            appendLineSafe(
+                "Interesting keys found: $interestingKeys"
+            )
+
+        } catch (e: Throwable) {
+
+            appendLineSafe(
+                "Could not analyze Camera ID $cameraId"
+            )
+
+            appendLineSafe(
+                "${e.javaClass.simpleName}: ${e.message}"
             )
         }
     }
 
-    private fun formatValue(value: Any): String {
+    private fun checkOutputFormat(
+        map: android.hardware.camera2.params.StreamConfigurationMap,
+        format: Int,
+        name: String
+    ) {
 
-        return when (value) {
+        try {
 
-            is IntArray ->
-                value.joinToString(", ")
+            val sizes =
+                map.getOutputSizes(format)
 
-            is LongArray ->
-                value.joinToString(", ")
+            if (
+                sizes == null ||
+                sizes.isEmpty()
+            ) {
 
-            is FloatArray ->
-                value.joinToString(", ")
+                appendLineSafe(
+                    "$name: NONE"
+                )
 
-            is DoubleArray ->
-                value.joinToString(", ")
+                return
+            }
 
-            is ByteArray ->
-                value.take(50)
-                    .joinToString(", ")
+            val largest =
+                sizes.maxByOrNull {
+                    it.width.toLong() *
+                            it.height.toLong()
+                }
 
-            is Array<*> ->
-                value.joinToString(", ")
+            if (largest != null) {
 
-            else ->
-                value.toString()
+                val mp =
+                    largest.width.toDouble() *
+                            largest.height.toDouble() /
+                            1_000_000.0
+
+                appendLineSafe(
+                    "$name Max: " +
+                            "${largest.width} x " +
+                            "${largest.height} = " +
+                            "%.2f MP".format(mp)
+                )
+
+                if (mp >= 40.0) {
+
+                    appendLineSafe(
+                        "*** HIGH RESOLUTION OUTPUT DETECTED ***"
+                    )
+                }
+
+                if (mp >= 100.0) {
+
+                    appendLineSafe(
+                        "*** 100 MP+ OUTPUT DETECTED ***"
+                    )
+                }
+            }
+
+        } catch (e: Throwable) {
+
+            appendLineSafe(
+                "$name: ERROR ${e.javaClass.simpleName}"
+            )
+        }
+    }
+
+    @Synchronized
+    private fun appendLineSafe(text: String) {
+
+        output.appendLine(text)
+
+        runOnUiThread {
+            outputText.text =
+                output.toString()
+        }
+    }
+
+    private fun updateOutput() {
+
+        runOnUiThread {
+            outputText.text =
+                output.toString()
         }
     }
 }
