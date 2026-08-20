@@ -4,15 +4,24 @@ plugins {
 }
 
 android {
-    namespace = "com.brett.vivoprobe"
+    namespace = "com.example.vivo200mpprobe"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.brett.vivoprobe"
-        minSdk = 31
+        applicationId = "com.example.vivo200mpprobe"
+        minSdk = 26
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
     }
 }
 
