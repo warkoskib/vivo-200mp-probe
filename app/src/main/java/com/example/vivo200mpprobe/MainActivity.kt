@@ -1,26 +1,30 @@
-package com.example.vivo200mpprobe
+package com.example.vivocamera2probe
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.graphics.ImageFormat
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.os.Bundle
 import android.util.Size
-import android.view.Gravity
-import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
-    private val cameraPermissionRequest = 100
+    private lateinit var outputText: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        outputText = TextView(this).apply {
+            textSize = 11f
+            setPadding(24, 24, 24, 24)
+            setTextIsSelectable(true)
+        }
+
+        setContentView(outputText)
 
         if (
             ContextCompat.checkSelfPermission(
@@ -31,10 +35,10 @@ class MainActivity : AppCompatActivity() {
             ActivityCompat.requestPermissions(
                 this,
                 arrayOf(Manifest.permission.CAMERA),
-                cameraPermissionRequest
+                100
             )
         } else {
-            showCameraInfo()
+            runProbe()
         }
     }
 
@@ -43,705 +47,657 @@ class MainActivity : AppCompatActivity() {
         permissions: Array<out String>,
         grantResults: IntArray
     ) {
-        super.onRequestPermissionsResult(
-            requestCode,
-            permissions,
-            grantResults
-        )
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
 
-        if (requestCode == cameraPermissionRequest) {
-            if (
-                grantResults.isNotEmpty() &&
-                grantResults[0] == PackageManager.PERMISSION_GRANTED
-            ) {
-                showCameraInfo()
-            } else {
-                showText(
-                    """
-                    CAMERA PERMISSION DENIED
-
-                    The app needs camera permission to inspect
-                    the camera hardware exposed by Android.
-                    """.trimIndent()
-                )
-            }
+        if (
+            requestCode == 100 &&
+            grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        ) {
+            runProbe()
+        } else {
+            outputText.text = "Camera permission denied."
         }
     }
 
-    private fun showCameraInfo() {
+    private fun runProbe() {
 
-        val manager =
-            getSystemService(CAMERA_SERVICE) as CameraManager
+        val manager = getSystemService(CAMERA_SERVICE) as CameraManager
+        val report = StringBuilder()
 
-        val output = StringBuilder()
+        report.appendLine("VIVO CAMERA2 DEEP PROBE")
+        report.appendLine("======================================")
+        report.appendLine()
+        report.appendLine("LOGICAL CAMERAS DETECTED: ${manager.cameraIdList.size}")
+        report.appendLine()
 
-        output.append("VIVO CAMERA2 PROBE\n")
-        output.append("==============================\n\n")
+        for (cameraId in manager.cameraIdList) {
 
-        try {
+            report.appendLine()
+            report.appendLine("######################################")
+            report.appendLine("CAMERA ID: $cameraId")
+            report.appendLine("######################################")
 
-            val cameraIds = manager.cameraIdList
+            try {
 
-            output.append("CAMERAS DETECTED: ")
-            output.append(cameraIds.size)
-            output.append("\n\n")
-
-            for (cameraId in cameraIds) {
-
-                val c =
-                    manager.getCameraCharacteristics(cameraId)
-
-                output.append("================================\n")
-                output.append("CAMERA ID: $cameraId\n")
-                output.append("================================\n")
+                val chars = manager.getCameraCharacteristics(cameraId)
 
                 val facing =
-                    c.get(CameraCharacteristics.LENS_FACING)
-
-                output.append(
-                    "Facing: ${lensFacingName(facing)}\n"
-                )
-
-                val hardwareLevel =
-                    c.get(
-                        CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL
-                    )
-
-                output.append(
-                    "Hardware Level: ${
-                        hardwareLevelName(hardwareLevel)
-                    }\n"
-                )
-
-                val capabilities =
-                    c.get(
-                        CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES
-                    )
-
-                output.append("\nCAPABILITIES\n")
-                output.append("------------------------------\n")
-
-                if (capabilities != null) {
-
-                    for (capability in capabilities) {
-                        output.append(
-                            capabilityName(capability)
-                        )
-                        output.append("\n")
+                    when (chars.get(CameraCharacteristics.LENS_FACING)) {
+                        CameraCharacteristics.LENS_FACING_BACK -> "BACK"
+                        CameraCharacteristics.LENS_FACING_FRONT -> "FRONT"
+                        CameraCharacteristics.LENS_FACING_EXTERNAL -> "EXTERNAL"
+                        else -> "UNKNOWN"
                     }
 
+                report.appendLine("Facing: $facing")
+
+                val level =
+                    when (
+                        chars.get(
+                            CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL
+                        )
+                    ) {
+                        CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY ->
+                            "LEGACY"
+
+                        CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED ->
+                            "LIMITED"
+
+                        CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_FULL ->
+                            "FULL"
+
+                        CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_3 ->
+                            "LEVEL 3"
+
+                        CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_EXTERNAL ->
+                            "EXTERNAL"
+
+                        else ->
+                            "UNKNOWN"
+                    }
+
+                report.appendLine("Hardware Level: $level")
+                report.appendLine()
+
+                // ---------------------------------------------------
+                // PHYSICAL CAMERA IDs
+                // ---------------------------------------------------
+
+                report.appendLine("PHYSICAL CAMERA IDS")
+                report.appendLine("--------------------------------------")
+
+                val physicalIds = chars.physicalCameraIds
+
+                if (physicalIds.isEmpty()) {
+                    report.appendLine("None")
                 } else {
-                    output.append("None reported\n")
+
+                    physicalIds.forEach { physicalId ->
+                        report.appendLine("Physical Camera ID: $physicalId")
+                    }
                 }
 
+                report.appendLine()
+
+                // ---------------------------------------------------
+                // SENSOR INFORMATION
+                // ---------------------------------------------------
+
+                report.appendLine("SENSOR INFORMATION")
+                report.appendLine("--------------------------------------")
+
                 val pixelArray =
-                    c.get(
+                    chars.get(
                         CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE
                     )
 
                 val activeArray =
-                    c.get(
+                    chars.get(
                         CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE
                     )
 
                 val physicalSize =
-                    c.get(
+                    chars.get(
                         CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE
                     )
 
-                output.append("\nSENSOR\n")
-                output.append("------------------------------\n")
-
                 if (pixelArray != null) {
 
-                    output.append(
-                        "Pixel Array: " +
-                            "${pixelArray.width} x " +
-                            "${pixelArray.height}\n"
+                    val mp =
+                        pixelArray.width.toDouble() *
+                                pixelArray.height.toDouble() /
+                                1_000_000.0
+
+                    report.appendLine(
+                        "Pixel Array: ${pixelArray.width} x ${pixelArray.height}"
                     )
 
-                    output.append(
-                        "Pixel Array MP: ${
-                            megapixels(
-                                pixelArray.width,
-                                pixelArray.height
-                            )
-                        }\n"
+                    report.appendLine(
+                        "Pixel Array MP: %.2f".format(mp)
                     )
                 }
 
                 if (activeArray != null) {
 
-                    output.append(
-                        "Active Array: " +
-                            "${activeArray.width()} x " +
-                            "${activeArray.height()}\n"
+                    val mp =
+                        activeArray.width().toDouble() *
+                                activeArray.height().toDouble() /
+                                1_000_000.0
+
+                    report.appendLine(
+                        "Active Array: ${activeArray.width()} x ${activeArray.height()}"
                     )
 
-                    output.append(
-                        "Active Array MP: ${
-                            megapixels(
-                                activeArray.width(),
-                                activeArray.height()
-                            )
-                        }\n"
+                    report.appendLine(
+                        "Active Array MP: %.2f".format(mp)
                     )
                 }
 
                 if (physicalSize != null) {
-                    output.append(
-                        "Physical Sensor Size: " +
-                            String.format(
-                                Locale.US,
-                                "%.2f x %.2f mm\n",
-                                physicalSize.width,
-                                physicalSize.height
-                            )
+
+                    report.appendLine(
+                        "Physical Sensor Size: %.2f x %.2f mm".format(
+                            physicalSize.width,
+                            physicalSize.height
+                        )
                     )
                 }
 
                 val focalLengths =
-                    c.get(
+                    chars.get(
                         CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS
                     )
 
                 if (focalLengths != null) {
-                    output.append(
-                        "Focal Lengths: " +
-                            focalLengths.joinToString(
-                                ", "
-                            ) {
-                                String.format(
-                                    Locale.US,
-                                    "%.2f mm",
-                                    it
-                                )
+
+                    report.appendLine(
+                        "Focal Lengths: ${
+                            focalLengths.joinToString(", ") {
+                                "%.2f mm".format(it)
                             }
+                        }"
                     )
-                    output.append("\n")
                 }
 
-                val streamMap =
-                    c.get(
-                        CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP
-                    )
+                report.appendLine()
 
-                if (streamMap == null) {
+                // ---------------------------------------------------
+                // CAPABILITIES
+                // ---------------------------------------------------
 
-                    output.append(
-                        "\nNo stream configuration map.\n\n"
-                    )
+                report.appendLine("CAPABILITIES")
+                report.appendLine("--------------------------------------")
 
-                    continue
-                }
-
-                /*
-                 * JPEG OUTPUTS
-                 */
-
-                val jpegSizes =
-                    streamMap.getOutputSizes(
-                        ImageFormat.JPEG
+                val capabilities =
+                    chars.get(
+                        CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES
                     )
 
-                output.append("\nJPEG OUTPUT SIZES\n")
-                output.append("------------------------------\n")
+                if (capabilities != null) {
 
-                appendSizes(
-                    output,
-                    jpegSizes
-                )
+                    capabilities.forEach {
 
-                /*
-                 * YUV OUTPUTS
-                 */
-
-                val yuvSizes =
-                    streamMap.getOutputSizes(
-                        ImageFormat.YUV_420_888
-                    )
-
-                output.append("\nYUV OUTPUT SIZES\n")
-                output.append("------------------------------\n")
-
-                appendSizes(
-                    output,
-                    yuvSizes
-                )
-
-                /*
-                 * RAW SENSOR
-                 */
-
-                val rawSizes =
-                    try {
-                        streamMap.getOutputSizes(
-                            ImageFormat.RAW_SENSOR
+                        report.appendLine(
+                            capabilityName(it)
                         )
-                    } catch (e: Exception) {
-                        null
+                    }
+                }
+
+                report.appendLine()
+
+                // ---------------------------------------------------
+                // ALL CHARACTERISTIC KEYS
+                // ---------------------------------------------------
+
+                report.appendLine("ALL CAMERA CHARACTERISTIC KEYS")
+                report.appendLine("--------------------------------------")
+
+                val keys =
+                    chars.keys.sortedBy {
+                        it.name.lowercase()
                     }
 
-                output.append("\nRAW_SENSOR OUTPUT SIZES\n")
-                output.append("------------------------------\n")
+                for (key in keys) {
 
-                appendSizes(
-                    output,
-                    rawSizes
-                )
+                    report.appendLine(key.name)
 
-                /*
-                 * RAW10
-                 */
-
-                val raw10Sizes =
                     try {
-                        streamMap.getOutputSizes(
-                            ImageFormat.RAW10
+
+                        val value =
+                            chars.get(key)
+
+                        report.appendLine(
+                            "    VALUE: ${formatValue(value)}"
                         )
+
                     } catch (e: Exception) {
-                        null
+
+                        report.appendLine(
+                            "    VALUE: <unable to read>"
+                        )
+                    }
+                }
+
+                report.appendLine()
+
+                // ---------------------------------------------------
+                // REQUEST KEYS
+                // ---------------------------------------------------
+
+                report.appendLine("AVAILABLE CAPTURE REQUEST KEYS")
+                report.appendLine("--------------------------------------")
+
+                chars.availableCaptureRequestKeys
+                    .sortedBy {
+                        it.name.lowercase()
+                    }
+                    .forEach {
+
+                        report.appendLine(it.name)
                     }
 
-                output.append("\nRAW10 OUTPUT SIZES\n")
-                output.append("------------------------------\n")
+                report.appendLine()
 
-                appendSizes(
-                    output,
-                    raw10Sizes
-                )
+                // ---------------------------------------------------
+                // RESULT KEYS
+                // ---------------------------------------------------
 
-                /*
-                 * RAW12
-                 */
+                report.appendLine("AVAILABLE CAPTURE RESULT KEYS")
+                report.appendLine("--------------------------------------")
 
-                val raw12Sizes =
-                    try {
-                        streamMap.getOutputSizes(
-                            ImageFormat.RAW12
-                        )
-                    } catch (e: Exception) {
-                        null
+                chars.availableCaptureResultKeys
+                    .sortedBy {
+                        it.name.lowercase()
+                    }
+                    .forEach {
+
+                        report.appendLine(it.name)
                     }
 
-                output.append("\nRAW12 OUTPUT SIZES\n")
-                output.append("------------------------------\n")
+                report.appendLine()
 
-                appendSizes(
-                    output,
-                    raw12Sizes
-                )
+                // ---------------------------------------------------
+                // SESSION KEYS
+                // ---------------------------------------------------
 
-                /*
-                 * HIGH RESOLUTION JPEG
-                 */
+                report.appendLine("AVAILABLE SESSION KEYS")
+                report.appendLine("--------------------------------------")
 
-                val highResJpeg =
-                    try {
-                        streamMap.getHighResolutionOutputSizes(
-                            ImageFormat.JPEG
-                        )
-                    } catch (e: Exception) {
-                        null
-                    }
+                try {
 
-                output.append("\nHIGH RESOLUTION JPEG\n")
-                output.append("------------------------------\n")
+                    chars.availableSessionKeys
+                        .sortedBy {
+                            it.name.lowercase()
+                        }
+                        .forEach {
 
-                appendSizes(
-                    output,
-                    highResJpeg
-                )
-
-                /*
-                 * HIGH RESOLUTION YUV
-                 */
-
-                val highResYuv =
-                    try {
-                        streamMap.getHighResolutionOutputSizes(
-                            ImageFormat.YUV_420_888
-                        )
-                    } catch (e: Exception) {
-                        null
-                    }
-
-                output.append("\nHIGH RESOLUTION YUV\n")
-                output.append("------------------------------\n")
-
-                appendSizes(
-                    output,
-                    highResYuv
-                )
-
-                /*
-                 * HIGH RESOLUTION RAW
-                 */
-
-                val highResRaw =
-                    try {
-                        streamMap.getHighResolutionOutputSizes(
-                            ImageFormat.RAW_SENSOR
-                        )
-                    } catch (e: Exception) {
-                        null
-                    }
-
-                output.append("\nHIGH RESOLUTION RAW\n")
-                output.append("------------------------------\n")
-
-                appendSizes(
-                    output,
-                    highResRaw
-                )
-
-                /*
-                 * MAXIMUM DISCOVERED RESOLUTION
-                 */
-
-                val allSizes =
-                    mutableListOf<Size>()
-
-                jpegSizes?.let {
-                    allSizes.addAll(it)
-                }
-
-                yuvSizes?.let {
-                    allSizes.addAll(it)
-                }
-
-                rawSizes?.let {
-                    allSizes.addAll(it)
-                }
-
-                raw10Sizes?.let {
-                    allSizes.addAll(it)
-                }
-
-                raw12Sizes?.let {
-                    allSizes.addAll(it)
-                }
-
-                highResJpeg?.let {
-                    allSizes.addAll(it)
-                }
-
-                highResYuv?.let {
-                    allSizes.addAll(it)
-                }
-
-                highResRaw?.let {
-                    allSizes.addAll(it)
-                }
-
-                if (allSizes.isNotEmpty()) {
-
-                    val biggest =
-                        allSizes.maxByOrNull {
-                            it.width.toLong() *
-                                it.height.toLong()
+                            report.appendLine(it.name)
                         }
 
-                    if (biggest != null) {
+                } catch (e: Exception) {
 
-                        output.append(
-                            "\n*** MAXIMUM EXPOSED RESOLUTION ***\n"
+                    report.appendLine(
+                        "Session keys unavailable."
+                    )
+                }
+
+                report.appendLine()
+
+                // ---------------------------------------------------
+                // PHYSICAL CAMERA CHARACTERISTICS
+                // ---------------------------------------------------
+
+                if (physicalIds.isNotEmpty()) {
+
+                    report.appendLine()
+                    report.appendLine(
+                        "======================================"
+                    )
+
+                    report.appendLine(
+                        "PHYSICAL CAMERA DETAILS"
+                    )
+
+                    report.appendLine(
+                        "======================================"
+                    )
+
+                    for (physicalId in physicalIds) {
+
+                        report.appendLine()
+                        report.appendLine(
+                            "PHYSICAL CAMERA ID: $physicalId"
                         )
 
-                        output.append(
-                            "${biggest.width} x " +
-                                "${biggest.height}\n"
+                        report.appendLine(
+                            "--------------------------------------"
                         )
 
-                        output.append(
-                            "${
-                                megapixels(
-                                    biggest.width,
-                                    biggest.height
+                        try {
+
+                            val pChars =
+                                manager.getCameraCharacteristics(
+                                    physicalId
                                 )
-                            } MP\n"
-                        )
-                    }
-                }
 
-                /*
-                 * CHECK SPECIFICALLY FOR > 100 MP
-                 */
-
-                val hugeSizes =
-                    allSizes
-                        .distinctBy {
-                            "${it.width}x${it.height}"
-                        }
-                        .filter {
-                            (
-                                it.width.toLong() *
-                                    it.height.toLong()
-                            ) >= 100_000_000L
-                        }
-                        .sortedByDescending {
-                            it.width.toLong() *
-                                it.height.toLong()
-                        }
-
-                output.append(
-                    "\n100 MP+ MODES DETECTED\n"
-                )
-
-                output.append(
-                    "------------------------------\n"
-                )
-
-                if (hugeSizes.isEmpty()) {
-
-                    output.append(
-                        "NONE exposed through standard Camera2 outputs.\n"
-                    )
-
-                } else {
-
-                    for (size in hugeSizes) {
-
-                        output.append(
-                            "${size.width} x " +
-                                "${size.height}  =  "
-                        )
-
-                        output.append(
-                            megapixels(
-                                size.width,
-                                size.height
+                            dumpPhysicalCamera(
+                                physicalId,
+                                pChars,
+                                report
                             )
-                        )
 
-                        output.append(" MP\n")
+                        } catch (e: Exception) {
+
+                            report.appendLine(
+                                "Unable to access directly."
+                            )
+
+                            report.appendLine(
+                                "Reason: ${e.message}"
+                            )
+                        }
                     }
                 }
 
-                output.append("\n\n")
+            } catch (e: Exception) {
+
+                report.appendLine(
+                    "ERROR READING CAMERA $cameraId"
+                )
+
+                report.appendLine(
+                    e.stackTraceToString()
+                )
             }
 
-        } catch (e: Exception) {
-
-            output.append("\nERROR\n")
-            output.append("==============================\n")
-            output.append(e.javaClass.simpleName)
-            output.append("\n")
-            output.append(e.message ?: "Unknown error")
-            output.append("\n")
+            report.appendLine()
         }
 
-        showText(
-            output.toString()
-        )
+        // -----------------------------------------------------------
+        // SEARCH HINT
+        // -----------------------------------------------------------
+
+        report.appendLine()
+        report.appendLine("======================================")
+        report.appendLine("SEARCH THESE TERMS IN THIS REPORT")
+        report.appendLine("======================================")
+
+        val terms =
+            listOf(
+                "vivo",
+                "vendor",
+                "remosaic",
+                "remosaic",
+                "highres",
+                "high_resolution",
+                "super",
+                "ultra",
+                "fullsize",
+                "full_size",
+                "fullpixel",
+                "full_pixel",
+                "200mp",
+                "200m",
+                "100mp",
+                "50mp",
+                "pixel",
+                "quad",
+                "bayer",
+                "sensor",
+                "raw",
+                "maximum"
+            )
+
+        terms.forEach {
+
+            report.appendLine(it)
+        }
+
+        outputText.text =
+            report.toString()
     }
 
-    private fun appendSizes(
-        builder: StringBuilder,
-        sizes: Array<Size>?
+    private fun dumpPhysicalCamera(
+        physicalId: String,
+        chars: CameraCharacteristics,
+        report: StringBuilder
     ) {
 
-        if (sizes == null || sizes.isEmpty()) {
-            builder.append("None\n")
-            return
-        }
+        val facing =
+            when (
+                chars.get(
+                    CameraCharacteristics.LENS_FACING
+                )
+            ) {
+                CameraCharacteristics.LENS_FACING_BACK ->
+                    "BACK"
 
-        val sorted =
-            sizes.sortedByDescending {
-                it.width.toLong() *
-                    it.height.toLong()
+                CameraCharacteristics.LENS_FACING_FRONT ->
+                    "FRONT"
+
+                else ->
+                    "UNKNOWN"
             }
 
-        for (size in sorted) {
+        report.appendLine(
+            "Facing: $facing"
+        )
 
-            builder.append(
-                String.format(
-                    Locale.US,
-                    "%d x %d   =   %.2f MP\n",
-                    size.width,
-                    size.height,
-                    (
-                        size.width.toDouble() *
-                            size.height.toDouble()
-                        ) / 1_000_000.0
+        val pixelArray =
+            chars.get(
+                CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE
+            )
+
+        if (pixelArray != null) {
+
+            val mp =
+                pixelArray.width.toDouble() *
+                        pixelArray.height.toDouble() /
+                        1_000_000.0
+
+            report.appendLine(
+                "Pixel Array: ${pixelArray.width} x ${pixelArray.height}"
+            )
+
+            report.appendLine(
+                "Pixel Array MP: %.2f".format(mp)
+            )
+        }
+
+        val active =
+            chars.get(
+                CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE
+            )
+
+        if (active != null) {
+
+            val mp =
+                active.width().toDouble() *
+                        active.height().toDouble() /
+                        1_000_000.0
+
+            report.appendLine(
+                "Active Array: ${active.width()} x ${active.height()}"
+            )
+
+            report.appendLine(
+                "Active Array MP: %.2f".format(mp)
+            )
+        }
+
+        val physicalSize =
+            chars.get(
+                CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE
+            )
+
+        if (physicalSize != null) {
+
+            report.appendLine(
+                "Physical Sensor Size: %.2f x %.2f mm".format(
+                    physicalSize.width,
+                    physicalSize.height
                 )
             )
         }
-    }
 
-    private fun megapixels(
-        width: Int,
-        height: Int
-    ): String {
+        val focalLengths =
+            chars.get(
+                CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS
+            )
 
-        val mp =
-            (
-                width.toDouble() *
-                    height.toDouble()
-                ) / 1_000_000.0
+        if (focalLengths != null) {
 
-        return String.format(
-            Locale.US,
-            "%.2f",
-            mp
+            report.appendLine(
+                "Focal Lengths: ${
+                    focalLengths.joinToString(", ") {
+                        "%.2f mm".format(it)
+                    }
+                }"
+            )
+        }
+
+        report.appendLine()
+        report.appendLine(
+            "CHARACTERISTIC KEYS"
         )
-    }
 
-    private fun lensFacingName(
-        value: Int?
-    ): String {
+        report.appendLine(
+            "--------------------------------------"
+        )
 
-        return when (value) {
+        chars.keys
+            .sortedBy {
+                it.name.lowercase()
+            }
+            .forEach { key ->
 
-            CameraCharacteristics.LENS_FACING_BACK ->
-                "BACK"
+                report.appendLine(
+                    key.name
+                )
 
-            CameraCharacteristics.LENS_FACING_FRONT ->
-                "FRONT"
+                try {
 
-            CameraCharacteristics.LENS_FACING_EXTERNAL ->
-                "EXTERNAL"
+                    val value =
+                        chars.get(key)
 
-            else ->
-                "UNKNOWN"
-        }
-    }
+                    report.appendLine(
+                        "    VALUE: ${formatValue(value)}"
+                    )
 
-    private fun hardwareLevelName(
-        value: Int?
-    ): String {
+                } catch (e: Exception) {
 
-        return when (value) {
-
-            CameraCharacteristics
-                .INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY ->
-                "LEGACY"
-
-            CameraCharacteristics
-                .INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED ->
-                "LIMITED"
-
-            CameraCharacteristics
-                .INFO_SUPPORTED_HARDWARE_LEVEL_FULL ->
-                "FULL"
-
-            CameraCharacteristics
-                .INFO_SUPPORTED_HARDWARE_LEVEL_3 ->
-                "LEVEL 3"
-
-            CameraCharacteristics
-                .INFO_SUPPORTED_HARDWARE_LEVEL_EXTERNAL ->
-                "EXTERNAL"
-
-            else ->
-                "UNKNOWN"
-        }
+                    report.appendLine(
+                        "    VALUE: <unable to read>"
+                    )
+                }
+            }
     }
 
     private fun capabilityName(
-        value: Int
+        capability: Int
     ): String {
 
-        return when (value) {
+        return when (capability) {
 
-            CameraCharacteristics
-                .REQUEST_AVAILABLE_CAPABILITIES_BACKWARD_COMPATIBLE ->
+            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_BACKWARD_COMPATIBLE ->
                 "BACKWARD_COMPATIBLE"
 
-            CameraCharacteristics
-                .REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR ->
+            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR ->
                 "MANUAL_SENSOR"
 
-            CameraCharacteristics
-                .REQUEST_AVAILABLE_CAPABILITIES_MANUAL_POST_PROCESSING ->
+            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_POST_PROCESSING ->
                 "MANUAL_POST_PROCESSING"
 
-            CameraCharacteristics
-                .REQUEST_AVAILABLE_CAPABILITIES_RAW ->
+            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW ->
                 "RAW"
 
-            CameraCharacteristics
-                .REQUEST_AVAILABLE_CAPABILITIES_PRIVATE_REPROCESSING ->
+            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_PRIVATE_REPROCESSING ->
                 "PRIVATE_REPROCESSING"
 
-            CameraCharacteristics
-                .REQUEST_AVAILABLE_CAPABILITIES_READ_SENSOR_SETTINGS ->
+            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_READ_SENSOR_SETTINGS ->
                 "READ_SENSOR_SETTINGS"
 
-            CameraCharacteristics
-                .REQUEST_AVAILABLE_CAPABILITIES_BURST_CAPTURE ->
+            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_BURST_CAPTURE ->
                 "BURST_CAPTURE"
 
-            CameraCharacteristics
-                .REQUEST_AVAILABLE_CAPABILITIES_YUV_REPROCESSING ->
+            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_YUV_REPROCESSING ->
                 "YUV_REPROCESSING"
 
-            CameraCharacteristics
-                .REQUEST_AVAILABLE_CAPABILITIES_DEPTH_OUTPUT ->
+            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_DEPTH_OUTPUT ->
                 "DEPTH_OUTPUT"
 
-            CameraCharacteristics
-                .REQUEST_AVAILABLE_CAPABILITIES_CONSTRAINED_HIGH_SPEED_VIDEO ->
+            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_CONSTRAINED_HIGH_SPEED_VIDEO ->
                 "HIGH_SPEED_VIDEO"
 
-            CameraCharacteristics
-                .REQUEST_AVAILABLE_CAPABILITIES_MOTION_TRACKING ->
+            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MOTION_TRACKING ->
                 "MOTION_TRACKING"
 
-            CameraCharacteristics
-                .REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA ->
+            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA ->
                 "LOGICAL_MULTI_CAMERA"
 
-            CameraCharacteristics
-                .REQUEST_AVAILABLE_CAPABILITIES_MONOCHROME ->
+            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MONOCHROME ->
                 "MONOCHROME"
 
-            CameraCharacteristics
-                .REQUEST_AVAILABLE_CAPABILITIES_SECURE_IMAGE_DATA ->
+            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_SECURE_IMAGE_DATA ->
                 "SECURE_IMAGE_DATA"
 
-            CameraCharacteristics
-                .REQUEST_AVAILABLE_CAPABILITIES_SYSTEM_CAMERA ->
-                "SYSTEM_CAMERA"
-
-            CameraCharacteristics
-                .REQUEST_AVAILABLE_CAPABILITIES_OFFLINE_PROCESSING ->
-                "OFFLINE_PROCESSING"
-
             else ->
-                "CAPABILITY $value"
+                "CAPABILITY $capability"
         }
     }
 
-    private fun showText(
-        text: String
-    ) {
+    private fun formatValue(
+        value: Any?
+    ): String {
 
-        val textView =
-            TextView(this).apply {
+        if (value == null) {
+            return "null"
+        }
 
-                this.text = text
+        return when (value) {
 
-                textSize = 14f
-
-                setPadding(
-                    28,
-                    28,
-                    28,
-                    28
+            is IntArray ->
+                value.joinToString(
+                    prefix = "[",
+                    postfix = "]"
                 )
 
-                gravity = Gravity.START
+            is LongArray ->
+                value.joinToString(
+                    prefix = "[",
+                    postfix = "]"
+                )
 
-                setTextIsSelectable(true)
-            }
+            is FloatArray ->
+                value.joinToString(
+                    prefix = "[",
+                    postfix = "]"
+                )
 
-        val scrollView =
-            ScrollView(this).apply {
+            is DoubleArray ->
+                value.joinToString(
+                    prefix = "[",
+                    postfix = "]"
+                )
 
-                addView(textView)
-            }
+            is BooleanArray ->
+                value.joinToString(
+                    prefix = "[",
+                    postfix = "]"
+                )
 
-        setContentView(scrollView)
+            is Array<*> ->
+                value.joinToString(
+                    prefix = "[",
+                    postfix = "]"
+                )
+
+            is Size ->
+                "${value.width} x ${value.height}"
+
+            else ->
+                value.toString()
+        }
     }
 }
