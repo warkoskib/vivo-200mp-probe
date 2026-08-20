@@ -1,4 +1,4 @@
-package com.example.vivocamera2probe
+package com.example.vivo200mpprobe
 
 import android.os.Bundle
 import android.widget.TextView
@@ -9,19 +9,18 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val text = TextView(this)
-
-        text.text = """
-            VIVO CAMERA2 PROBE
+        val textView = TextView(this)
+        textView.text = """
+            Vivo 200MP Probe
             
-            APP IS RUNNING
+            App started successfully.
             
-            MainActivity loaded successfully.
+            No camera code is running yet.
         """.trimIndent()
 
-        text.textSize = 22f
-        text.setPadding(50, 100, 50, 50)
+        textView.textSize = 20f
+        textView.setPadding(40, 60, 40, 40)
 
-        setContentView(text)
+        setContentView(textView)
     }
 }
