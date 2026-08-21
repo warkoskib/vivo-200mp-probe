@@ -33,7 +33,6 @@ import java.util.concurrent.Executor
 class MainActivity : AppCompatActivity() {
 
     companion object {
-
         private const val CAMERA_ID = "3"
 
         private const val WIDTH = 4080
@@ -41,9 +40,7 @@ class MainActivity : AppCompatActivity() {
 
         private const val CAMERA_PERMISSION_REQUEST = 1001
 
-        private const val MODE_HW = 1
-        private const val MODE_SW_RAW16 = 2
-        private const val MODE_FULL_SIZE = 3
+        private const val WAIT_AFTER_CAPTURE_MS = 10000L
     }
 
     private lateinit var cameraManager: CameraManager
@@ -57,12 +54,13 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var output: TextView
 
-    private lateinit var hwButton: Button
-    private lateinit var swRaw16Button: Button
-    private lateinit var fullSizeButton: Button
+    private lateinit var createSessionButton: Button
     private lateinit var captureButton: Button
 
-    private var activeMode = 0
+    private var imageCounter = 0
+    private var resultCounter = 0
+
+    private var captureStartTime = 0L
 
     // =========================================================
     // SESSION KEYS
@@ -198,12 +196,6 @@ class MainActivity : AppCompatActivity() {
             Int::class.javaObjectType
         )
 
-    private val upscaleKey =
-        CaptureRequest.Key(
-            "vivo.control.isUpscale",
-            Int::class.javaObjectType
-        )
-
     private val isCaptureKey =
         CaptureRequest.Key(
             "vivo.control.isCapture",
@@ -216,6 +208,88 @@ class MainActivity : AppCompatActivity() {
             Int::class.javaObjectType
         )
 
+    private val upscaleKey =
+        CaptureRequest.Key(
+            "vivo.control.isUpscale",
+            Int::class.javaObjectType
+        )
+
+    // =========================================================
+    // RESULT KEYS
+    // =========================================================
+
+    private val requestLeftResultKey =
+        CaptureResult.Key(
+            "vivo.control.RequestLeftInThisSnapshot",
+            IntArray::class.java
+        )
+
+    private val rawCaptureTypeResultKey =
+        CaptureResult.Key(
+            "vivo.control.raw_capture_type",
+            IntArray::class.java
+        )
+
+    private val highResolutionDngTypeResultKey =
+        CaptureResult.Key(
+            "vivo.parameter.highResolutionDngType",
+            IntArray::class.java
+        )
+
+    private val currentModeExResultKey =
+        CaptureResult.Key(
+            "vivo.control.currentModeEx",
+            IntArray::class.java
+        )
+
+    private val sceneModeResultKey =
+        CaptureResult.Key(
+            "vivo.control.sceneMode",
+            IntArray::class.java
+        )
+
+    private val imageEchoResultKey =
+        CaptureResult.Key(
+            "vcf.parameter.ImageEcho",
+            IntArray::class.java
+        )
+
+    private val isCaptureResultKey =
+        CaptureResult.Key(
+            "vivo.control.isCapture",
+            IntArray::class.java
+        )
+
+    private val isSnapshotResultKey =
+        CaptureResult.Key(
+            "vivo.control.is_snapshot",
+            IntArray::class.java
+        )
+
+    private val sensorModeResultKey =
+        CaptureResult.Key(
+            "vivo.control.sensorMode",
+            IntArray::class.java
+        )
+
+    private val niceCaptureSensorModeResultKey =
+        CaptureResult.Key(
+            "vivo.parameter.niceCaptureSensorMode",
+            IntArray::class.java
+        )
+
+    private val tuningHintResultKey =
+        CaptureResult.Key(
+            "com.mediatek.control.capture.hintForIspTuning",
+            IntArray::class.java
+        )
+
+    private val customTuningHintResultKey =
+        CaptureResult.Key(
+            "com.mediatek.control.capture.hintForCustomTuning",
+            IntArray::class.java
+        )
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -225,18 +299,16 @@ class MainActivity : AppCompatActivity() {
         cameraManager =
             getSystemService(CAMERA_SERVICE) as CameraManager
 
-        log("VIVO 3-MODE OEM REMOSAIC CLONE PROBE")
-        log("====================================")
+        log("VIVO SW RAW16 MULTI-FRAME PROBE")
+        log("================================")
         log("")
         log("Camera ID: $CAMERA_ID")
         log("RAW output: $WIDTH x $HEIGHT")
         log("")
-        log("MODE A - HW REMOSAIC CANDIDATE")
-        log("MODE B - SW RAW16 REMOSAIC CANDIDATE")
-        log("MODE C - FULL SIZE REMOSAIC CANDIDATE")
-        log("")
-        log("All modes use the known-valid RAW stream.")
-        log("We compare HAL-returned metadata.")
+        log("Purpose:")
+        log("Keep the OEM SW RAW16 session alive")
+        log("and record every result + RAW image")
+        log("for 10 seconds after capture.")
         log("")
 
         if (
@@ -258,10 +330,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // =========================================================
-    // UI
-    // =========================================================
-
     private fun buildUi() {
 
         val root =
@@ -277,71 +345,39 @@ class MainActivity : AppCompatActivity() {
             25
         )
 
-        hwButton =
+        createSessionButton =
             Button(this)
 
-        hwButton.text =
-            "CREATE HW REMOSAIC SESSION"
-
-        hwButton.isEnabled =
-            false
-
-        hwButton.setOnClickListener {
-            createModeSession(
-                MODE_HW
-            )
-        }
-
-        root.addView(hwButton)
-
-        swRaw16Button =
-            Button(this)
-
-        swRaw16Button.text =
+        createSessionButton.text =
             "CREATE SW RAW16 SESSION"
 
-        swRaw16Button.isEnabled =
+        createSessionButton.isEnabled =
             false
 
-        swRaw16Button.setOnClickListener {
-            createModeSession(
-                MODE_SW_RAW16
-            )
+        createSessionButton.setOnClickListener {
+            createSwRaw16Session()
         }
 
-        root.addView(swRaw16Button)
-
-        fullSizeButton =
-            Button(this)
-
-        fullSizeButton.text =
-            "CREATE FULL SIZE SESSION"
-
-        fullSizeButton.isEnabled =
-            false
-
-        fullSizeButton.setOnClickListener {
-            createModeSession(
-                MODE_FULL_SIZE
-            )
-        }
-
-        root.addView(fullSizeButton)
+        root.addView(
+            createSessionButton
+        )
 
         captureButton =
             Button(this)
 
         captureButton.text =
-            "CAPTURE RAW"
+            "START SW RAW16 CAPTURE"
 
         captureButton.isEnabled =
             false
 
         captureButton.setOnClickListener {
-            captureCurrentMode()
+            startSwRaw16Capture()
         }
 
-        root.addView(captureButton)
+        root.addView(
+            captureButton
+        )
 
         val copyButton =
             Button(this)
@@ -358,7 +394,7 @@ class MainActivity : AppCompatActivity() {
 
             clipboard.setPrimaryClip(
                 ClipData.newPlainText(
-                    "Vivo 3 Mode Remosaic Probe",
+                    "Vivo SW RAW16 Multi Frame Probe",
                     output.text.toString()
                 )
             )
@@ -370,19 +406,23 @@ class MainActivity : AppCompatActivity() {
             ).show()
         }
 
-        root.addView(copyButton)
+        root.addView(
+            copyButton
+        )
 
         val clearButton =
             Button(this)
 
         clearButton.text =
-            "CLEAR"
+            "CLEAR OUTPUT"
 
         clearButton.setOnClickListener {
             output.text = ""
         }
 
-        root.addView(clearButton)
+        root.addView(
+            clearButton
+        )
 
         val scroll =
             ScrollView(this)
@@ -404,7 +444,9 @@ class MainActivity : AppCompatActivity() {
             120
         )
 
-        scroll.addView(output)
+        scroll.addView(
+            output
+        )
 
         root.addView(
             scroll,
@@ -415,7 +457,9 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
-        setContentView(root)
+        setContentView(
+            root
+        )
     }
 
     // =========================================================
@@ -438,7 +482,8 @@ class MainActivity : AppCompatActivity() {
         cameraManager.openCamera(
             CAMERA_ID,
 
-            object : CameraDevice.StateCallback() {
+            object :
+                CameraDevice.StateCallback() {
 
                 override fun onOpened(
                     camera: CameraDevice
@@ -447,17 +492,23 @@ class MainActivity : AppCompatActivity() {
                     cameraDevice =
                         camera
 
-                    log("Camera 3 opened.")
-                    log("Choose a remosaic mode.")
+                    log(
+                        "Camera 3 opened."
+                    )
 
-                    enableModeButtons()
+                    runOnUiThread {
+                        createSessionButton.isEnabled =
+                            true
+                    }
                 }
 
                 override fun onDisconnected(
                     camera: CameraDevice
                 ) {
 
-                    log("Camera disconnected.")
+                    log(
+                        "Camera disconnected."
+                    )
 
                     camera.close()
 
@@ -470,7 +521,9 @@ class MainActivity : AppCompatActivity() {
                     error: Int
                 ) {
 
-                    log("CAMERA ERROR: $error")
+                    log(
+                        "CAMERA ERROR: $error"
+                    )
 
                     camera.close()
 
@@ -484,32 +537,30 @@ class MainActivity : AppCompatActivity() {
     }
 
     // =========================================================
-    // CREATE MODE SESSION
+    // CREATE SW RAW16 SESSION
     // =========================================================
 
-    private fun createModeSession(
-        mode: Int
-    ) {
+    private fun createSwRaw16Session() {
 
         val camera =
             cameraDevice ?: return
 
-        activeMode =
-            mode
+        closeSessionOnly()
 
-        disableButtons()
+        captureButton.isEnabled =
+            false
 
-        closeCurrentSession()
+        imageCounter =
+            0
+
+        resultCounter =
+            0
 
         log("")
         log("")
         log("################################")
-        log("CREATE ${modeName(mode)} SESSION")
+        log("CREATE SW RAW16 SESSION")
         log("################################")
-
-        log(
-            "RAW_SENSOR $WIDTH x $HEIGHT"
-        )
 
         try {
 
@@ -518,25 +569,36 @@ class MainActivity : AppCompatActivity() {
                     WIDTH,
                     HEIGHT,
                     ImageFormat.RAW_SENSOR,
-                    2
+                    12
                 )
 
             rawReader!!
                 .setOnImageAvailableListener(
                     { reader ->
-                        handleRawImage(
+                        handleEveryImage(
                             reader
                         )
                     },
                     cameraHandler
                 )
 
+            log(
+                "ImageReader created."
+            )
+
+            log(
+                "maxImages = 12"
+            )
+
         } catch (e: Throwable) {
 
-            log("ImageReader FAILED")
-            log(e.toString())
+            log(
+                "ImageReader FAILED"
+            )
 
-            enableModeButtons()
+            log(
+                e.toString()
+            )
 
             return
         }
@@ -558,28 +620,15 @@ class MainActivity : AppCompatActivity() {
 
                     log("")
                     log(
-                        "${modeName(mode)} SESSION CONFIGURED"
+                        "SW RAW16 SESSION CONFIGURED"
                     )
 
                     log(
-                        "HAL accepted session."
+                        "HAL accepted the session."
                     )
 
                     runOnUiThread {
-
-                        captureButton.text =
-                            "CAPTURE ${modeName(mode)}"
-
                         captureButton.isEnabled =
-                            true
-
-                        hwButton.isEnabled =
-                            true
-
-                        swRaw16Button.isEnabled =
-                            true
-
-                        fullSizeButton.isEnabled =
                             true
                     }
                 }
@@ -591,10 +640,8 @@ class MainActivity : AppCompatActivity() {
 
                     log("")
                     log(
-                        "${modeName(mode)} SESSION FAILED"
+                        "SW RAW16 SESSION FAILED"
                     )
-
-                    enableModeButtons()
                 }
             }
 
@@ -605,13 +652,6 @@ class MainActivity : AppCompatActivity() {
                 Build.VERSION_CODES.P
             ) {
 
-                val executor =
-                    Executor { runnable ->
-                        cameraHandler.post(
-                            runnable
-                        )
-                    }
-
                 val config =
                     SessionConfiguration(
                         SessionConfiguration.SESSION_REGULAR,
@@ -620,7 +660,11 @@ class MainActivity : AppCompatActivity() {
                                 surface
                             )
                         ),
-                        executor,
+                        Executor { runnable ->
+                            cameraHandler.post(
+                                runnable
+                            )
+                        },
                         callback
                     )
 
@@ -637,10 +681,8 @@ class MainActivity : AppCompatActivity() {
                 log("SESSION PARAMETERS")
                 log("------------------")
 
-                applyModeParameters(
-                    sessionRequest,
-                    mode,
-                    true
+                applySwRaw16SessionParameters(
+                    sessionRequest
                 )
 
                 config.setSessionParameters(
@@ -664,31 +706,26 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Throwable) {
 
             log("")
-            log("SESSION EXCEPTION")
+            log(
+                "SESSION EXCEPTION"
+            )
 
             log(
                 e.javaClass.simpleName +
                     ": " +
                     (e.message ?: "")
             )
-
-            enableModeButtons()
         }
     }
 
     // =========================================================
-    // MODE PRESETS
+    // SESSION PARAMETERS
     // =========================================================
 
-    private fun applyModeParameters(
-        builder: CaptureRequest.Builder,
-        mode: Int,
-        sessionPhase: Boolean
+    private fun applySwRaw16SessionParameters(
+        builder:
+            CaptureRequest.Builder
     ) {
-
-        /*
-         * COMMON OEM HIGH-RES CONTROLS
-         */
 
         setInt(
             builder,
@@ -725,6 +762,41 @@ class MainActivity : AppCompatActivity() {
             "sensorScenario"
         )
 
+        setInt(
+            builder,
+            sensorScenarioCustomHintKey,
+            1,
+            "sensorScenarioCustomHint"
+        )
+
+        setInt(
+            builder,
+            forceSensorModeKey,
+            0,
+            "forceSensorMode"
+        )
+
+        setInt(
+            builder,
+            engineerRemosaicModeKey,
+            1,
+            "EngineerRemosaicMode"
+        )
+
+        setInt(
+            builder,
+            advanceFullsizeKey,
+            0,
+            "advance_fullsize"
+        )
+
+        setInt(
+            builder,
+            proRawKey,
+            1,
+            "is_ProRaw_on"
+        )
+
         setIntArray(
             builder,
             streamsUsageKey,
@@ -745,144 +817,75 @@ class MainActivity : AppCompatActivity() {
             ),
             "vcfStreamType"
         )
+    }
 
-        when (mode) {
+    // =========================================================
+    // CAPTURE
+    // =========================================================
 
-            // =================================================
-            // MODE A
-            // Hardware-remosaic candidate
-            // =================================================
+    private fun startSwRaw16Capture() {
 
-            MODE_HW -> {
+        val camera =
+            cameraDevice ?: return
 
-                setInt(
-                    builder,
-                    forceSensorModeKey,
-                    0,
-                    "forceSensorMode"
-                )
+        val session =
+            captureSession ?: return
 
-                setInt(
-                    builder,
-                    engineerRemosaicModeKey,
-                    1,
-                    "EngineerRemosaicMode"
-                )
+        val reader =
+            rawReader ?: return
 
-                setInt(
-                    builder,
-                    advanceFullsizeKey,
-                    0,
-                    "advance_fullsize"
-                )
+        imageCounter =
+            0
 
-                setInt(
-                    builder,
-                    sensorScenarioCustomHintKey,
-                    1,
-                    "sensorScenarioCustomHint"
-                )
+        resultCounter =
+            0
 
-                setInt(
-                    builder,
-                    proRawKey,
-                    0,
-                    "is_ProRaw_on"
-                )
-            }
+        captureStartTime =
+            System.currentTimeMillis()
 
-            // =================================================
-            // MODE B
-            // RAW16 software-remosaic candidate
-            // =================================================
-
-            MODE_SW_RAW16 -> {
-
-                setInt(
-                    builder,
-                    forceSensorModeKey,
-                    0,
-                    "forceSensorMode"
-                )
-
-                setInt(
-                    builder,
-                    engineerRemosaicModeKey,
-                    1,
-                    "EngineerRemosaicMode"
-                )
-
-                setInt(
-                    builder,
-                    advanceFullsizeKey,
-                    0,
-                    "advance_fullsize"
-                )
-
-                setInt(
-                    builder,
-                    sensorScenarioCustomHintKey,
-                    1,
-                    "sensorScenarioCustomHint"
-                )
-
-                setInt(
-                    builder,
-                    proRawKey,
-                    1,
-                    "is_ProRaw_on"
-                )
-            }
-
-            // =================================================
-            // MODE C
-            // Full-size OEM candidate
-            // =================================================
-
-            MODE_FULL_SIZE -> {
-
-                setInt(
-                    builder,
-                    forceSensorModeKey,
-                    0,
-                    "forceSensorMode"
-                )
-
-                setInt(
-                    builder,
-                    engineerRemosaicModeKey,
-                    1,
-                    "EngineerRemosaicMode"
-                )
-
-                setInt(
-                    builder,
-                    advanceFullsizeKey,
-                    1,
-                    "advance_fullsize"
-                )
-
-                setInt(
-                    builder,
-                    sensorScenarioCustomHintKey,
-                    1,
-                    "sensorScenarioCustomHint"
-                )
-
-                setInt(
-                    builder,
-                    proRawKey,
-                    1,
-                    "is_ProRaw_on"
-                )
-            }
+        runOnUiThread {
+            captureButton.isEnabled =
+                false
         }
 
-        if (!sessionPhase) {
+        log("")
+        log("")
+        log("################################")
+        log("START SW RAW16 MULTI-FRAME TEST")
+        log("################################")
+
+        log(
+            "Observation window: 10 seconds"
+        )
+
+        try {
+
+            val builder =
+                camera.createCaptureRequest(
+                    CameraDevice.TEMPLATE_STILL_CAPTURE
+                )
+
+            builder.addTarget(
+                reader.surface
+            )
+
+            builder.set(
+                CaptureRequest.CONTROL_MODE,
+                CameraMetadata.CONTROL_MODE_AUTO
+            )
+
+            builder.set(
+                CaptureRequest.CONTROL_AE_MODE,
+                CaptureRequest.CONTROL_AE_MODE_ON
+            )
+
+            applySwRaw16SessionParameters(
+                builder
+            )
 
             log("")
-            log("CAPTURE-ONLY PARAMETERS")
-            log("-----------------------")
+            log("CAPTURE PARAMETERS")
+            log("------------------")
 
             setInt(
                 builder,
@@ -914,6 +917,20 @@ class MainActivity : AppCompatActivity() {
 
             setInt(
                 builder,
+                rawCaptureTypeKey,
+                32,
+                "raw_capture_type"
+            )
+
+            setInt(
+                builder,
+                highResolutionDngTypeKey,
+                1,
+                "highResolutionDngType"
+            )
+
+            setInt(
+                builder,
                 nativeModeKey,
                 1,
                 "isNativeMode"
@@ -935,6 +952,13 @@ class MainActivity : AppCompatActivity() {
 
             setInt(
                 builder,
+                upscaleKey,
+                0,
+                "isUpscale"
+            )
+
+            setInt(
+                builder,
                 isCaptureKey,
                 1,
                 "isCapture"
@@ -947,142 +971,11 @@ class MainActivity : AppCompatActivity() {
                 "is_snapshot"
             )
 
-            when (mode) {
-
-                MODE_HW -> {
-
-                    setInt(
-                        builder,
-                        rawCaptureTypeKey,
-                        0,
-                        "raw_capture_type"
-                    )
-
-                    setInt(
-                        builder,
-                        highResolutionDngTypeKey,
-                        0,
-                        "highResolutionDngType"
-                    )
-
-                    setInt(
-                        builder,
-                        upscaleKey,
-                        0,
-                        "isUpscale"
-                    )
-                }
-
-                MODE_SW_RAW16 -> {
-
-                    /*
-                     * The HAL previously returned 32 while
-                     * the OEM-remosaic path was active.
-                     * Test 32 explicitly here.
-                     */
-
-                    setInt(
-                        builder,
-                        rawCaptureTypeKey,
-                        32,
-                        "raw_capture_type"
-                    )
-
-                    setInt(
-                        builder,
-                        highResolutionDngTypeKey,
-                        1,
-                        "highResolutionDngType"
-                    )
-
-                    setInt(
-                        builder,
-                        upscaleKey,
-                        0,
-                        "isUpscale"
-                    )
-                }
-
-                MODE_FULL_SIZE -> {
-
-                    setInt(
-                        builder,
-                        rawCaptureTypeKey,
-                        32,
-                        "raw_capture_type"
-                    )
-
-                    setInt(
-                        builder,
-                        highResolutionDngTypeKey,
-                        1,
-                        "highResolutionDngType"
-                    )
-
-                    setInt(
-                        builder,
-                        upscaleKey,
-                        1,
-                        "isUpscale"
-                    )
-                }
-            }
-        }
-    }
-
-    // =========================================================
-    // CAPTURE
-    // =========================================================
-
-    private fun captureCurrentMode() {
-
-        val camera =
-            cameraDevice ?: return
-
-        val session =
-            captureSession ?: return
-
-        val reader =
-            rawReader ?: return
-
-        captureButton.isEnabled =
-            false
-
-        log("")
-        log("")
-        log("################################")
-        log("${modeName(activeMode)} CAPTURE")
-        log("################################")
-
-        try {
-
-            val builder =
-                camera.createCaptureRequest(
-                    CameraDevice.TEMPLATE_STILL_CAPTURE
-                )
-
-            builder.addTarget(
-                reader.surface
-            )
-
-            builder.set(
-                CaptureRequest.CONTROL_MODE,
-                CameraMetadata.CONTROL_MODE_AUTO
-            )
-
-            builder.set(
-                CaptureRequest.CONTROL_AE_MODE,
-                CaptureRequest.CONTROL_AE_MODE_ON
-            )
-
-            applyModeParameters(
-                builder,
-                activeMode,
-                false
-            )
+            val request =
+                builder.build()
 
             session.capture(
-                builder.build(),
+                request,
 
                 object :
                     CameraCaptureSession.CaptureCallback() {
@@ -1100,11 +993,30 @@ class MainActivity : AppCompatActivity() {
 
                         log("")
                         log(
-                            "Capture started."
+                            "CAPTURE STARTED"
                         )
 
                         log(
-                            "Frame: $frameNumber"
+                            "frameNumber = $frameNumber"
+                        )
+
+                        log(
+                            "timestamp = $timestamp"
+                        )
+                    }
+
+                    override fun onCaptureProgressed(
+                        session:
+                            CameraCaptureSession,
+                        request:
+                            CaptureRequest,
+                        partialResult:
+                            CaptureResult
+                    ) {
+
+                        dumpOneResult(
+                            partialResult,
+                            "PARTIAL"
                         )
                     }
 
@@ -1117,19 +1029,54 @@ class MainActivity : AppCompatActivity() {
                             TotalCaptureResult
                     ) {
 
+                        dumpOneResult(
+                            result,
+                            "TOTAL"
+                        )
+
                         log("")
                         log(
-                            "Capture completed."
+                            "Camera2 says capture request completed."
                         )
 
-                        dumpResult(
-                            result
+                        log(
+                            "Keeping session + reader alive for 10 seconds..."
                         )
 
-                        runOnUiThread {
-                            captureButton.isEnabled =
-                                true
-                        }
+                        cameraHandler.postDelayed(
+                            {
+
+                                log("")
+                                log("")
+                                log("================================")
+                                log("10 SECOND OBSERVATION COMPLETE")
+                                log("================================")
+
+                                log(
+                                    "Capture results observed: $resultCounter"
+                                )
+
+                                log(
+                                    "RAW images observed: $imageCounter"
+                                )
+
+                                log("")
+                                log(
+                                    "Session remains open."
+                                )
+
+                                log(
+                                    "Press COPY OUTPUT."
+                                )
+
+                                runOnUiThread {
+                                    captureButton.isEnabled =
+                                        true
+                                }
+
+                            },
+                            WAIT_AFTER_CAPTURE_MS
+                        )
                     }
 
                     override fun onCaptureFailed(
@@ -1150,10 +1097,54 @@ class MainActivity : AppCompatActivity() {
                             "Reason: ${failure.reason}"
                         )
 
+                        log(
+                            "Frame: ${failure.frameNumber}"
+                        )
+
                         runOnUiThread {
                             captureButton.isEnabled =
                                 true
                         }
+                    }
+
+                    override fun onCaptureSequenceCompleted(
+                        session:
+                            CameraCaptureSession,
+                        sequenceId:
+                            Int,
+                        frameNumber:
+                            Long
+                    ) {
+
+                        log("")
+                        log(
+                            "CAPTURE SEQUENCE COMPLETED"
+                        )
+
+                        log(
+                            "sequenceId = $sequenceId"
+                        )
+
+                        log(
+                            "lastFrame = $frameNumber"
+                        )
+                    }
+
+                    override fun onCaptureSequenceAborted(
+                        session:
+                            CameraCaptureSession,
+                        sequenceId:
+                            Int
+                    ) {
+
+                        log("")
+                        log(
+                            "CAPTURE SEQUENCE ABORTED"
+                        )
+
+                        log(
+                            "sequenceId = $sequenceId"
+                        )
                     }
                 },
 
@@ -1163,129 +1154,266 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Throwable) {
 
             log("")
-            log("CAPTURE EXCEPTION")
-
             log(
-                e.javaClass.simpleName +
-                    ": " +
-                    (e.message ?: "")
+                "CAPTURE EXCEPTION"
             )
 
-            captureButton.isEnabled =
-                true
+            log(
+                e.javaClass.name
+            )
+
+            log(
+                e.message ?: ""
+            )
+
+            runOnUiThread {
+                captureButton.isEnabled =
+                    true
+            }
         }
     }
 
     // =========================================================
-    // RAW BUFFER
+    // EVERY RESULT
     // =========================================================
 
-    private fun handleRawImage(
-        reader: ImageReader
+    private fun dumpOneResult(
+        result:
+            CaptureResult,
+        type:
+            String
     ) {
 
-        var image:
-            Image? =
-            null
+        resultCounter++
 
-        try {
+        log("")
+        log("")
+        log("================================")
+        log("$type RESULT #$resultCounter")
+        log("================================")
 
-            image =
-                reader.acquireNextImage()
+        log(
+            "Frame number: ${result.frameNumber}"
+        )
 
-            if (image == null) {
-                return
+        val sensorTimestamp =
+            try {
+                result.get(
+                    CaptureResult.SENSOR_TIMESTAMP
+                )
+            } catch (_: Throwable) {
+                null
             }
 
-            log("")
-            log("")
-            log("==============================")
-            log("RAW BUFFER RECEIVED")
-            log("==============================")
+        log(
+            "Sensor timestamp: ${sensorTimestamp ?: "null"}"
+        )
 
-            log(
-                "Mode: ${modeName(activeMode)}"
-            )
+        logResultArray(
+            result,
+            requestLeftResultKey,
+            "RequestLeftInThisSnapshot"
+        )
 
-            log(
-                "Image: ${image.width} x ${image.height}"
-            )
+        logResultArray(
+            result,
+            rawCaptureTypeResultKey,
+            "raw_capture_type"
+        )
 
-            log(
-                "Format: ${image.format}"
-            )
+        logResultArray(
+            result,
+            highResolutionDngTypeResultKey,
+            "highResolutionDngType"
+        )
 
-            log(
-                "Planes: ${image.planes.size}"
-            )
+        logResultArray(
+            result,
+            currentModeExResultKey,
+            "currentModeEx"
+        )
 
-            var total =
-                0L
+        logResultArray(
+            result,
+            sceneModeResultKey,
+            "sceneMode"
+        )
 
-            image.planes.forEachIndexed {
-                    index,
-                    plane ->
+        logResultArray(
+            result,
+            imageEchoResultKey,
+            "ImageEcho"
+        )
 
-                val count =
-                    plane.buffer.remaining()
+        logResultArray(
+            result,
+            isCaptureResultKey,
+            "isCapture"
+        )
 
-                total +=
-                    count.toLong()
+        logResultArray(
+            result,
+            isSnapshotResultKey,
+            "is_snapshot"
+        )
+
+        logResultArray(
+            result,
+            sensorModeResultKey,
+            "sensorMode"
+        )
+
+        logResultArray(
+            result,
+            niceCaptureSensorModeResultKey,
+            "niceCaptureSensorMode"
+        )
+
+        logResultArray(
+            result,
+            tuningHintResultKey,
+            "hintForIspTuning"
+        )
+
+        logResultArray(
+            result,
+            customTuningHintResultKey,
+            "hintForCustomTuning"
+        )
+    }
+
+    // =========================================================
+    // EVERY IMAGE
+    // =========================================================
+
+    private fun handleEveryImage(
+        reader:
+            ImageReader
+    ) {
+
+        while (true) {
+
+            val image =
+                try {
+                    reader.acquireNextImage()
+                } catch (_: Throwable) {
+                    null
+                }
+
+            if (image == null) {
+                break
+            }
+
+            imageCounter++
+
+            try {
+
+                log("")
+                log("")
+                log("********************************")
+                log("RAW IMAGE #$imageCounter")
+                log("********************************")
+
+                log(
+                    "Timestamp: ${image.timestamp}"
+                )
+
+                log(
+                    "Width: ${image.width}"
+                )
+
+                log(
+                    "Height: ${image.height}"
+                )
+
+                log(
+                    "Format: ${image.format}"
+                )
+
+                log(
+                    "Planes: ${image.planes.size}"
+                )
+
+                var totalBytes =
+                    0L
+
+                image.planes.forEachIndexed {
+                        index,
+                        plane ->
+
+                    val count =
+                        plane.buffer.remaining()
+
+                    totalBytes +=
+                        count.toLong()
+
+                    log("")
+                    log(
+                        "Plane $index"
+                    )
+
+                    log(
+                        "Bytes = $count"
+                    )
+
+                    log(
+                        "RowStride = ${plane.rowStride}"
+                    )
+
+                    log(
+                        "PixelStride = ${plane.pixelStride}"
+                    )
+                }
 
                 log("")
                 log(
-                    "Plane $index"
+                    "Total bytes = $totalBytes"
                 )
 
                 log(
-                    "Bytes: $count"
+                    String.format(
+                        Locale.US,
+                        "Approx %.2f MB",
+                        totalBytes /
+                            1024.0 /
+                            1024.0
+                    )
+                )
+
+                saveImage(
+                    image,
+                    imageCounter
+                )
+
+            } catch (e: Throwable) {
+
+                log(
+                    "IMAGE HANDLER ERROR:"
                 )
 
                 log(
-                    "RowStride: ${plane.rowStride}"
+                    e.toString()
                 )
 
-                log(
-                    "PixelStride: ${plane.pixelStride}"
-                )
-            }
+            } finally {
 
-            log("")
-            log(
-                "TOTAL BYTES: $total"
-            )
-
-            log(
-                String.format(
-                    Locale.US,
-                    "%.2f MB",
-                    total /
-                        1024.0 /
-                        1024.0
-                )
-            )
-
-            saveRaw(
-                image
-            )
-
-        } catch (e: Throwable) {
-
-            log(
-                "RAW READ ERROR: $e"
-            )
-
-        } finally {
-
-            try {
-                image?.close()
-            } catch (_: Throwable) {
+                try {
+                    image.close()
+                } catch (_: Throwable) {
+                }
             }
         }
     }
 
-    private fun saveRaw(
-        image: Image
+    // =========================================================
+    // SAVE EVERY RAW IMAGE
+    // =========================================================
+
+    private fun saveImage(
+        image:
+            Image,
+        index:
+            Int
     ) {
 
         try {
@@ -1297,7 +1425,7 @@ class MainActivity : AppCompatActivity() {
 
             directory.mkdirs()
 
-            val timestamp =
+            val stamp =
                 SimpleDateFormat(
                     "yyyyMMdd_HHmmss_SSS",
                     Locale.US
@@ -1305,25 +1433,24 @@ class MainActivity : AppCompatActivity() {
                     Date()
                 )
 
-            val safeName =
-                modeName(activeMode)
-                    .replace(
-                        " ",
-                        "_"
-                    )
-
             val file =
                 File(
                     directory,
-                    "${safeName}_" +
+                    "SW_RAW16_FRAME_" +
+                        String.format(
+                            Locale.US,
+                            "%02d",
+                            index
+                        ) +
+                        "_" +
                         "${image.width}x${image.height}_" +
-                        "$timestamp.raw"
+                        "$stamp.raw"
                 )
 
             FileOutputStream(
                 file
             ).use {
-                    output ->
+                    stream ->
 
                 image.planes.forEach {
                         plane ->
@@ -1341,142 +1468,83 @@ class MainActivity : AppCompatActivity() {
                         bytes
                     )
 
-                    output.write(
+                    stream.write(
                         bytes
                     )
                 }
             }
 
             log("")
-            log("RAW SAVED:")
+            log(
+                "Saved RAW image #$index:"
+            )
 
             log(
                 file.absolutePath
             )
 
+            log(
+                String.format(
+                    Locale.US,
+                    "Saved %.2f MB",
+                    file.length() /
+                        1024.0 /
+                        1024.0
+                )
+            )
+
         } catch (e: Throwable) {
 
             log(
-                "SAVE ERROR: $e"
+                "RAW SAVE ERROR:"
+            )
+
+            log(
+                e.toString()
             )
         }
     }
 
     // =========================================================
-    // RESULT DUMP
+    // RESULT HELPER
     // =========================================================
 
-    private fun dumpResult(
+    private fun logResultArray(
         result:
-            TotalCaptureResult
+            CaptureResult,
+        key:
+            CaptureResult.Key<IntArray>,
+        name:
+            String
     ) {
 
-        log("")
-        log("==============================")
-        log("OEM / SENSOR RESULT")
-        log("==============================")
+        try {
 
-        val terms =
-            listOf(
-                "remosaic",
-                "200mp",
-                "raw_capture",
-                "sensor",
-                "fullsize",
-                "highresolution",
-                "proraw",
-                "native",
-                "upscale",
-                "scenario",
-                "currentmode",
-                "scenemode",
-                "tuning",
-                "requestleft",
-                "stream",
-                "vcf"
-            )
-
-        var count =
-            0
-
-        for (key in result.keys) {
-
-            val lower =
-                key.name.lowercase(
-                    Locale.US
+            val value =
+                result.get(
+                    key
                 )
 
-            if (
-                terms.any {
-                    lower.contains(it)
-                }
-            ) {
+            if (value == null) {
 
-                count++
-
-                val value =
-                    try {
-                        result.get(key)
-                    } catch (_: Throwable) {
-                        "<READ ERROR>"
-                    }
-
-                log("")
                 log(
-                    key.name
+                    "$name = null"
                 )
 
+            } else {
+
                 log(
-                    formatValue(value)
+                    "$name = " +
+                        value.contentToString()
                 )
             }
+
+        } catch (e: Throwable) {
+
+            log(
+                "$name = READ ERROR"
+            )
         }
-
-        log("")
-        log(
-            "Matching result keys: $count"
-        )
-
-        log("")
-        log("==============================")
-        log("IMPORTANT COMPARISON TARGETS")
-        log("==============================")
-
-        log(
-            "Watch for differences in:"
-        )
-
-        log(
-            "raw_capture_type"
-        )
-
-        log(
-            "currentModeEx"
-        )
-
-        log(
-            "sceneMode"
-        )
-
-        log(
-            "hintForIspTuning"
-        )
-
-        log(
-            "hintForCustomTuning"
-        )
-
-        log(
-            "RequestLeftInThisSnapshot"
-        )
-
-        log(
-            "sensorMode"
-        )
-
-        log(
-            "niceCaptureSensorMode"
-        )
     }
 
     // =========================================================
@@ -1508,8 +1576,7 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Throwable) {
 
             log(
-                "FAIL $name: " +
-                    e.javaClass.simpleName
+                "FAIL $name"
             )
         }
     }
@@ -1539,8 +1606,7 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Throwable) {
 
             log(
-                "FAIL $name: " +
-                    e.javaClass.simpleName
+                "FAIL $name"
             )
         }
     }
@@ -1571,70 +1637,16 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Throwable) {
 
             log(
-                "FAIL $name: " +
-                    e.javaClass.simpleName
+                "FAIL $name"
             )
         }
     }
 
     // =========================================================
-    // HELPERS
+    // CLEANUP
     // =========================================================
 
-    private fun modeName(
-        mode: Int
-    ): String {
-
-        return when (mode) {
-
-            MODE_HW ->
-                "HW REMOSAIC"
-
-            MODE_SW_RAW16 ->
-                "SW RAW16 REMOSAIC"
-
-            MODE_FULL_SIZE ->
-                "FULL SIZE REMOSAIC"
-
-            else ->
-                "UNKNOWN"
-        }
-    }
-
-    private fun formatValue(
-        value: Any?
-    ): String {
-
-        if (value == null) {
-            return "null"
-        }
-
-        return when (value) {
-
-            is IntArray ->
-                value.contentToString()
-
-            is LongArray ->
-                value.contentToString()
-
-            is ByteArray ->
-                value.contentToString()
-
-            is FloatArray ->
-                value.contentToString()
-
-            is DoubleArray ->
-                value.contentToString()
-
-            is BooleanArray ->
-                value.contentToString()
-
-            else ->
-                value.toString()
-        }
-    }
-
-    private fun closeCurrentSession() {
+    private fun closeSessionOnly() {
 
         try {
             captureSession?.close()
@@ -1651,49 +1663,13 @@ class MainActivity : AppCompatActivity() {
 
         rawReader =
             null
-
-        captureButton.isEnabled =
-            false
-    }
-
-    private fun disableButtons() {
-
-        runOnUiThread {
-
-            hwButton.isEnabled =
-                false
-
-            swRaw16Button.isEnabled =
-                false
-
-            fullSizeButton.isEnabled =
-                false
-
-            captureButton.isEnabled =
-                false
-        }
-    }
-
-    private fun enableModeButtons() {
-
-        runOnUiThread {
-
-            hwButton.isEnabled =
-                true
-
-            swRaw16Button.isEnabled =
-                true
-
-            fullSizeButton.isEnabled =
-                true
-        }
     }
 
     private fun startCameraThread() {
 
         cameraThread =
             HandlerThread(
-                "VivoRemosaicClone"
+                "VivoRaw16MultiFrame"
             )
 
         cameraThread.start()
@@ -1705,7 +1681,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun log(
-        text: String
+        text:
+            String
     ) {
 
         runOnUiThread {
@@ -1749,7 +1726,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
 
-        closeCurrentSession()
+        closeSessionOnly()
 
         try {
             cameraDevice?.close()
