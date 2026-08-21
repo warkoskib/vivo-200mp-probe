@@ -9,6 +9,7 @@ import android.graphics.ImageFormat
 import android.hardware.camera2.*
 import android.hardware.camera2.params.OutputConfiguration
 import android.hardware.camera2.params.SessionConfiguration
+import android.hardware.camera2.params.StreamConfigurationMap
 import android.media.Image
 import android.media.ImageReader
 import android.os.Build
@@ -36,15 +37,7 @@ class MainActivity : AppCompatActivity() {
 
         private const val CAMERA_PERMISSION_REQUEST = 1001
 
-        /*
-         * Android CameraMetadata sensor-pixel-mode constants.
-         *
-         * 0 = DEFAULT
-         * 1 = MAXIMUM_RESOLUTION
-         *
-         * Using the integer values also avoids API-level
-         * constant-name problems on some SDK installations.
-         */
+        // Android CameraMetadata sensor pixel modes
         private const val SENSOR_PIXEL_MODE_DEFAULT_VALUE = 0
         private const val SENSOR_PIXEL_MODE_MAX_VALUE = 1
 
@@ -73,6 +66,8 @@ class MainActivity : AppCompatActivity() {
 
     private var caseImageReceived = false
     private var caseCaptureCompleted = false
+
+    private var finishScheduled = false
 
     // =========================================================
     // VIVO SESSION KEYS
@@ -394,7 +389,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // =========================================================
-    // INITIAL CHARACTERISTICS PROBE
+    // INITIALIZATION
     // =========================================================
 
     private fun initialize() {
@@ -403,6 +398,10 @@ class MainActivity : AppCompatActivity() {
 
         openCamera()
     }
+
+    // =========================================================
+    // CAMERA CHARACTERISTICS
+    // =========================================================
 
     private fun dumpMaximumResolutionCharacteristics() {
 
@@ -419,8 +418,7 @@ class MainActivity : AppCompatActivity() {
 
             val capabilities =
                 chars.get(
-                    CameraCharacteristics
-                        .REQUEST_AVAILABLE_CAPABILITIES
+                    CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES
                 )
 
             log("")
@@ -436,18 +434,13 @@ class MainActivity : AppCompatActivity() {
                     capabilities.contentToString()
                 )
 
-                log("")
-
                 for (capability in capabilities) {
-
-                    log(
-                        "  $capability"
-                    )
+                    log("  $capability")
                 }
             }
 
             // -------------------------------------------------
-            // Normal sensor array
+            // NORMAL SENSOR ARRAY
             // -------------------------------------------------
 
             log("")
@@ -457,37 +450,22 @@ class MainActivity : AppCompatActivity() {
 
             val normalPixelArray =
                 chars.get(
-                    CameraCharacteristics
-                        .SENSOR_INFO_PIXEL_ARRAY_SIZE
+                    CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE
                 )
 
-            log(
-                "PIXEL_ARRAY_SIZE:"
-            )
-
-            log(
-                normalPixelArray?.toString()
-                    ?: "null"
-            )
+            log("PIXEL_ARRAY_SIZE:")
+            log(normalPixelArray?.toString() ?: "null")
 
             val normalActive =
                 chars.get(
-                    CameraCharacteristics
-                        .SENSOR_INFO_ACTIVE_ARRAY_SIZE
+                    CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE
                 )
 
-            log(
-                "ACTIVE_ARRAY_SIZE:"
-            )
-
-            log(
-                normalActive?.toString()
-                    ?: "null"
-            )
+            log("ACTIVE_ARRAY_SIZE:")
+            log(normalActive?.toString() ?: "null")
 
             // -------------------------------------------------
-            // Maximum-resolution characteristics
-            // API 31+
+            // MAXIMUM RESOLUTION SENSOR ARRAY
             // -------------------------------------------------
 
             log("")
@@ -585,7 +563,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 // ---------------------------------------------
-                // Maximum resolution stream map
+                // MAXIMUM RESOLUTION STREAM MAP
                 // ---------------------------------------------
 
                 log("")
@@ -665,7 +643,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             // -------------------------------------------------
-            // SENSOR_PIXEL_MODE availability
+            // SENSOR PIXEL MODE KEY
             // -------------------------------------------------
 
             log("")
@@ -675,15 +653,17 @@ class MainActivity : AppCompatActivity() {
 
             try {
 
-                val present =
+                val requestKeys =
                     chars.availableCaptureRequestKeys
-                        .any {
-                            it.name ==
-                                "android.sensor.pixelMode"
-                        }
+
+                val matching =
+                    requestKeys.firstOrNull {
+                        it.name ==
+                            "android.sensor.pixelMode"
+                    }
 
                 log(
-                    "Capture request key present: $present"
+                    "Capture request key present: ${matching != null}"
                 )
 
             } catch (e: Throwable) {
@@ -694,7 +674,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             // -------------------------------------------------
-            // Available stream use cases
+            // STREAM USE CASES
             // -------------------------------------------------
 
             log("")
@@ -763,12 +743,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun dumpMapFormat(
-        map:
-            android.hardware.camera2.params.StreamConfigurationMap,
-        format:
-            Int,
-        label:
-            String
+        map: StreamConfigurationMap,
+        format: Int,
+        label: String
     ) {
 
         log("")
@@ -902,7 +879,6 @@ class MainActivity : AppCompatActivity() {
                         )
 
                         if (error == 4) {
-
                             log(
                                 "ERROR 4 = ERROR_CAMERA_DEVICE"
                             )
@@ -1162,31 +1138,29 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        if (
-            Build.VERSION.SDK_INT >=
-            Build.VERSION_CODES.S
-        ) {
+        /*
+         * IMPORTANT:
+         * We deliberately do not try to read
+         * outputConfig.sensorPixelModesUsed here.
+         *
+         * That property caused the previous compile failure.
+         */
 
-            try {
+        log(
+            "OutputConfiguration sensor pixel mode request:"
+        )
 
-                val modes =
-                    outputConfig.sensorPixelModesUsed
+        if (wantsOutputMax) {
 
-                log(
-                    "OutputConfiguration sensorPixelModesUsed:"
-                )
+            log(
+                "MAXIMUM_RESOLUTION requested"
+            )
 
-                log(
-                    modes.toString()
-                )
+        } else {
 
-            } catch (e: Throwable) {
-
-                log(
-                    "Unable to read sensorPixelModesUsed: " +
-                        e.javaClass.simpleName
-                )
-            }
+            log(
+                "DEFAULT / not overridden"
+            )
         }
 
         val callback =
@@ -1251,8 +1225,8 @@ class MainActivity : AppCompatActivity() {
                     )
 
                 /*
-                 * Session parameters are only added
-                 * for Case E.
+                 * Only Case E gets Vivo OEM
+                 * session parameters.
                  */
 
                 if (
@@ -1665,7 +1639,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // =========================================================
-    // VIVO PARAMETERS
+    // VIVO SESSION PARAMETERS
     // =========================================================
 
     private fun applyVivoSessionParameters(
@@ -1757,6 +1731,10 @@ class MainActivity : AppCompatActivity() {
             "vcfStreamType"
         )
     }
+
+    // =========================================================
+    // VIVO CAPTURE PARAMETERS
+    // =========================================================
 
     private fun applyVivoCaptureParameters(
         builder:
@@ -1855,10 +1833,6 @@ class MainActivity : AppCompatActivity() {
         log("SENSOR / VIVO RESULT")
         log("==============================")
 
-        // -----------------------------------------------------
-        // Android SENSOR_PIXEL_MODE
-        // -----------------------------------------------------
-
         if (
             Build.VERSION.SDK_INT >=
             Build.VERSION_CODES.S
@@ -1883,11 +1857,6 @@ class MainActivity : AppCompatActivity() {
                 )
             }
         }
-
-        // -----------------------------------------------------
-        // Dump relevant OEM values by name.
-        // This avoids requiring guessed result-key types.
-        // -----------------------------------------------------
 
         val terms =
             listOf(
@@ -1943,9 +1912,6 @@ class MainActivity : AppCompatActivity() {
     // =========================================================
     // CASE FINISH
     // =========================================================
-
-    private var finishScheduled =
-        false
 
     private fun finishCaseSoon() {
 
@@ -2108,7 +2074,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // =========================================================
-    // FORMAT RESULT VALUES
+    // VALUE FORMAT
     // =========================================================
 
     private fun formatValue(
@@ -2155,9 +2121,7 @@ class MainActivity : AppCompatActivity() {
     private fun closeSessionResources() {
 
         try {
-
             captureSession?.close()
-
         } catch (_: Throwable) {
         }
 
@@ -2165,9 +2129,7 @@ class MainActivity : AppCompatActivity() {
             null
 
         try {
-
             rawReader?.close()
-
         } catch (_: Throwable) {
         }
 
@@ -2247,9 +2209,7 @@ class MainActivity : AppCompatActivity() {
         closeSessionResources()
 
         try {
-
             cameraDevice?.close()
-
         } catch (_: Throwable) {
         }
 
@@ -2257,9 +2217,7 @@ class MainActivity : AppCompatActivity() {
             null
 
         try {
-
             cameraThread.quitSafely()
-
         } catch (_: Throwable) {
         }
 
