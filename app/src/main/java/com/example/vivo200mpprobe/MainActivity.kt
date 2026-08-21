@@ -1,10 +1,14 @@
 package com.example.vivo200mpprobe
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.PackageManager
 import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureRequest
 import android.os.Build
 import android.os.Bundle
 import android.widget.Button
@@ -13,43 +17,78 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import java.lang.reflect.Field
 import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val CAMERA_ID = "3"
+        private const val REQUEST_CAMERA = 1001
     }
 
-    private lateinit var output: TextView
     private lateinit var cameraManager: CameraManager
+    private lateinit var output: TextView
+    private lateinit var scanButton: Button
+
+    private var cameraDevice: CameraDevice? = null
 
     /*
-     * These are the terms we're especially interested in after
-     * examining VivoCamera.apk.
+     * These are the keys that matter most to the
+     * 200 MP / remosaic path we have discovered.
      */
-    private val interestingTerms = listOf(
-        "vivo",
-        "mtk",
-        "mediatek",
-        "remosaic",
-        "remosa",
-        "sensor",
-        "mode",
-        "quad",
-        "full",
-        "resolution",
-        "highresolution",
-        "high_resolution",
-        "200mp",
-        "100mp",
-        "capture",
-        "raw",
-        "pixel",
-        "scenario",
-        "stream",
-        "session",
-        "size"
+    private val targetKeyNames = listOf(
+
+        // Vivo 200 MP / resolution controls
+        "vivo.control.real200mp_switch_on",
+        "vivo.control.ultra_highresolution",
+        "vivo.control.portrait_high_resolution",
+        "vivo.control.ai_highresolution",
+
+        // Sensor mode controls
+        "vivo.control.forceSensorMode",
+        "vivo.control.sensorMode",
+        "vivo.preview.sensorMode",
+        "vivo.parameter.niceCaptureSensorMode",
+
+        // Vivo remosaic
+        "vivo.control.EngineerRemosaicMode",
+        "vivo.control.advance_fullsize",
+        "vivo.control.remosaic.capability",
+        "vivo.control.seamless.remosaic.enable",
+        "vivo.control.seamless.roiRemosaic",
+        "vivo.parameter.remosaicType",
+        "vivo.parameter.remosaicOTPData",
+
+        // MediaTek remosaic
+        "com.mediatek.control.capture.remosaicenable",
+        "com.mediatek.control.capture.seamless.remosaicenable",
+
+        // MediaTek sensor mode
+        "com.mediatek.seamlessfeature.cameraScenario",
+        "com.mediatek.seamlessfeature.sensorScenario",
+        "com.mediatek.seamlessfeature.sensorScenarioCustomHint",
+        "com.mediatek.seamlessfeature.sensorScenarioSwitchPolicy",
+
+        // Stream / image size controls
+        "vivo.control.picturesize.value",
+        "vivo.control.snapJpegSize",
+        "vivo.control.snapshotYuvStreamMap",
+        "vivo.control.streamsUsage",
+        "vivo.control.vcfStreamType",
+        "vcf.parameter.SnapshotJpegStreamMap",
+        "vcf.parameter.sensorSizeList",
+
+        // Other potentially useful capture controls
+        "vivo.control.isCapture",
+        "vivo.control.is_snapshot",
+        "vivo.control.isUpscale",
+        "vivo.control.isNativeMode",
+        "vivo.control.raw_capture_type",
+        "vivo.control.is_ProRaw_on",
+        "vivo.parameter.highResolutionDngType",
+        "vivo.parameter.niceCaptureInfoMask"
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -60,64 +99,76 @@ class MainActivity : AppCompatActivity() {
 
         buildUi()
 
-        log("CAMERA 3 VENDOR KEY PROBE")
+        log("VIVO 200 MP KEY TYPE PROBE")
         log("==============================")
         log("")
         log("Camera ID: $CAMERA_ID")
         log("Device: ${Build.MODEL}")
         log("Android: ${Build.VERSION.RELEASE}")
-        log("SDK: ${Build.VERSION.SDK_INT}")
         log("")
-        log("Press SCAN CAMERA KEYS.")
+        log("This probe does NOT capture an image.")
+        log("")
+        log("Press SCAN KEY TYPES.")
     }
 
     private fun buildUi() {
 
-        val root = LinearLayout(this)
+        val root =
+            LinearLayout(this)
 
-        root.orientation = LinearLayout.VERTICAL
-        root.setPadding(20, 30, 20, 30)
+        root.orientation =
+            LinearLayout.VERTICAL
 
-        // -------------------------------------------------
-        // SCAN
-        // -------------------------------------------------
+        root.setPadding(
+            20,
+            30,
+            20,
+            30
+        )
 
-        val scanButton = Button(this)
+        scanButton =
+            Button(this)
 
-        scanButton.text = "SCAN CAMERA KEYS"
+        scanButton.text =
+            "SCAN KEY TYPES"
 
         scanButton.setOnClickListener {
 
             output.text = ""
-            scanButton.isEnabled = false
 
-            Thread {
+            if (
+                ActivityCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.CAMERA
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
 
-                try {
-                    runProbe()
-                } finally {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(
+                        Manifest.permission.CAMERA
+                    ),
+                    REQUEST_CAMERA
+                )
 
-                    runOnUiThread {
-                        scanButton.isEnabled = true
-                    }
-                }
+            } else {
 
-            }.start()
+                startProbe()
+            }
         }
 
         root.addView(scanButton)
 
-        // -------------------------------------------------
-        // COPY
-        // -------------------------------------------------
+        val copyButton =
+            Button(this)
 
-        val copyButton = Button(this)
-
-        copyButton.text = "COPY OUTPUT"
+        copyButton.text =
+            "COPY OUTPUT"
 
         copyButton.setOnClickListener {
 
-            val text = output.text.toString()
+            val text =
+                output.text.toString()
 
             if (text.isBlank()) {
 
@@ -137,7 +188,7 @@ class MainActivity : AppCompatActivity() {
 
             clipboard.setPrimaryClip(
                 ClipData.newPlainText(
-                    "Camera 3 Vendor Key Probe",
+                    "Vivo 200MP Key Types",
                     text
                 )
             )
@@ -151,13 +202,11 @@ class MainActivity : AppCompatActivity() {
 
         root.addView(copyButton)
 
-        // -------------------------------------------------
-        // CLEAR
-        // -------------------------------------------------
+        val clearButton =
+            Button(this)
 
-        val clearButton = Button(this)
-
-        clearButton.text = "CLEAR OUTPUT"
+        clearButton.text =
+            "CLEAR OUTPUT"
 
         clearButton.setOnClickListener {
             output.text = ""
@@ -165,17 +214,25 @@ class MainActivity : AppCompatActivity() {
 
         root.addView(clearButton)
 
-        // -------------------------------------------------
-        // OUTPUT
-        // -------------------------------------------------
+        val scroll =
+            ScrollView(this)
 
-        val scroll = ScrollView(this)
+        output =
+            TextView(this)
 
-        output = TextView(this)
+        output.textSize =
+            12f
 
-        output.textSize = 12f
-        output.setTextIsSelectable(true)
-        output.setPadding(0, 20, 0, 120)
+        output.setTextIsSelectable(
+            true
+        )
+
+        output.setPadding(
+            0,
+            20,
+            0,
+            150
+        )
 
         scroll.addView(output)
 
@@ -191,15 +248,33 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
     }
 
-    // =====================================================
-    // MAIN PROBE
-    // =====================================================
+    private fun startProbe() {
 
-    private fun runProbe() {
+        scanButton.isEnabled =
+            false
 
-        log("CAMERA 3 VENDOR KEY PROBE")
-        log("==============================")
+        log(
+            "VIVO 200 MP KEY TYPE PROBE"
+        )
+
+        log(
+            "=============================="
+        )
+
         log("")
+
+        dumpCharacteristics()
+
+        openCameraForRequestDefaults()
+    }
+
+    /*
+     * First inspect CameraCharacteristics.
+     *
+     * This lets us see if any of the target names
+     * are characteristic keys with actual values.
+     */
+    private fun dumpCharacteristics() {
 
         try {
 
@@ -208,529 +283,772 @@ class MainActivity : AppCompatActivity() {
                     CAMERA_ID
                 )
 
-            // -------------------------------------------------
-            // SUMMARY FIRST
-            // -------------------------------------------------
-
-            dumpInterestingSummary(chars)
-
-            // -------------------------------------------------
-            // COMPLETE LISTS
-            // -------------------------------------------------
-
-            dumpCaptureRequestKeys(chars)
-
-            dumpCaptureResultKeys(chars)
-
-            dumpSessionKeys(chars)
-
-            dumpCharacteristicKeys(chars)
-
-            if (Build.VERSION.SDK_INT >= 35) {
-                dumpSessionCharacteristicKeys(chars)
-            }
-
-            dumpPhysicalRequestKeys(chars)
-
             log("")
-            log("==============================")
-            log("PROBE COMPLETE")
-            log("==============================")
-            log("")
-            log("Press COPY OUTPUT.")
+            log(
+                "=============================="
+            )
 
-        } catch (e: Throwable) {
+            log(
+                "TARGET CHARACTERISTIC VALUES"
+            )
 
-            log("")
-            log("==============================")
-            log("PROBE ERROR")
-            log("==============================")
+            log(
+                "=============================="
+            )
 
-            log(e.javaClass.name)
-            log(e.message ?: "")
-        }
-    }
+            var matches = 0
 
-    // =====================================================
-    // INTERESTING SUMMARY
-    // =====================================================
+            for (key in chars.keys) {
 
-    private fun dumpInterestingSummary(
-        chars: CameraCharacteristics
-    ) {
+                if (
+                    targetKeyNames.contains(
+                        key.name
+                    )
+                ) {
 
-        log("==============================")
-        log("IMPORTANT / VENDOR KEY SUMMARY")
-        log("==============================")
-        log("")
-
-        val requestKeys =
-            try {
-                chars.availableCaptureRequestKeys
-            } catch (_: Throwable) {
-                emptyList()
-            }
-
-        val resultKeys =
-            try {
-                chars.availableCaptureResultKeys
-            } catch (_: Throwable) {
-                emptyList()
-            }
-
-        val sessionKeys =
-            if (Build.VERSION.SDK_INT >= 28) {
-
-                try {
-                    chars.availableSessionKeys ?: emptyList()
-                } catch (_: Throwable) {
-                    emptyList()
-                }
-
-            } else {
-                emptyList()
-            }
-
-        val characteristicKeys =
-            try {
-                chars.keys
-            } catch (_: Throwable) {
-                emptyList()
-            }
-
-        val interestingRequests =
-            requestKeys.filter {
-                isInteresting(it.name)
-            }
-
-        val interestingResults =
-            resultKeys.filter {
-                isInteresting(it.name)
-            }
-
-        val interestingSessions =
-            sessionKeys.filter {
-                isInteresting(it.name)
-            }
-
-        val interestingCharacteristics =
-            characteristicKeys.filter {
-                isInteresting(it.name)
-            }
-
-        log("*** INTERESTING REQUEST KEYS ***")
-
-        if (interestingRequests.isEmpty()) {
-            log("NONE")
-        } else {
-
-            interestingRequests
-                .sortedBy { it.name }
-                .forEach {
+                    matches++
 
                     log("")
-                    log(it.name)
-                }
-        }
+                    log(
+                        "KEY:"
+                    )
 
-        log("")
-        log("*** INTERESTING RESULT KEYS ***")
-
-        if (interestingResults.isEmpty()) {
-            log("NONE")
-        } else {
-
-            interestingResults
-                .sortedBy { it.name }
-                .forEach {
-
-                    log("")
-                    log(it.name)
-                }
-        }
-
-        log("")
-        log("*** INTERESTING SESSION KEYS ***")
-
-        if (interestingSessions.isEmpty()) {
-            log("NONE")
-        } else {
-
-            interestingSessions
-                .sortedBy { it.name }
-                .forEach {
-
-                    log("")
-                    log("!!! SESSION KEY !!!")
-                    log(it.name)
-                }
-        }
-
-        log("")
-        log("*** INTERESTING CHARACTERISTIC KEYS ***")
-
-        if (interestingCharacteristics.isEmpty()) {
-            log("NONE")
-        } else {
-
-            interestingCharacteristics
-                .sortedBy { it.name }
-                .forEach {
-
-                    log("")
-                    log(it.name)
+                    log(
+                        key.name
+                    )
 
                     try {
 
                         val value =
-                            chars.get(it)
+                            chars.get(key)
 
                         log(
-                            "VALUE: ${formatValue(value)}"
+                            "VALUE:"
                         )
 
-                    } catch (e: Throwable) {
+                        log(
+                            formatValue(value)
+                        )
 
                         log(
-                            "VALUE READ ERROR: " +
-                                e.javaClass.simpleName
+                            "RUNTIME TYPE:"
+                        )
+
+                        log(
+                            value?.javaClass?.name
+                                ?: "null"
+                        )
+
+                    } catch (
+                        e: Throwable
+                    ) {
+
+                        log(
+                            "VALUE READ ERROR:"
+                        )
+
+                        log(
+                            e.javaClass.name +
+                                ": " +
+                                (e.message ?: "")
                         )
                     }
-                }
-        }
 
-        log("")
-    }
-
-    // =====================================================
-    // REQUEST KEYS
-    // =====================================================
-
-    private fun dumpCaptureRequestKeys(
-        chars: CameraCharacteristics
-    ) {
-
-        log("==============================")
-        log("AVAILABLE CAPTURE REQUEST KEYS")
-        log("==============================")
-
-        try {
-
-            val keys =
-                chars.availableCaptureRequestKeys
-
-            log("COUNT: ${keys.size}")
-            log("")
-
-            keys
-                .sortedBy { it.name }
-                .forEachIndexed { index, key ->
-
-                    val marker =
-                        if (isInteresting(key.name)) {
-                            "***"
-                        } else {
-                            "   "
-                        }
-
-                    log(
-                        "$marker [$index] ${key.name}"
+                    dumpReflectionInfo(
+                        key
                     )
                 }
+            }
 
-        } catch (e: Throwable) {
-
-            log("ERROR:")
-            log(e.toString())
-        }
-
-        log("")
-    }
-
-    // =====================================================
-    // RESULT KEYS
-    // =====================================================
-
-    private fun dumpCaptureResultKeys(
-        chars: CameraCharacteristics
-    ) {
-
-        log("==============================")
-        log("AVAILABLE CAPTURE RESULT KEYS")
-        log("==============================")
-
-        try {
-
-            val keys =
-                chars.availableCaptureResultKeys
-
-            log("COUNT: ${keys.size}")
             log("")
+            log(
+                "Characteristic matches: $matches"
+            )
 
-            keys
-                .sortedBy { it.name }
-                .forEachIndexed { index, key ->
+            /*
+             * Summary of whether target keys appear
+             * in the request/session/result lists.
+             */
 
-                    val marker =
-                        if (isInteresting(key.name)) {
-                            "***"
-                        } else {
-                            "   "
-                        }
-
-                    log(
-                        "$marker [$index] ${key.name}"
-                    )
-                }
-
-        } catch (e: Throwable) {
-
-            log("ERROR:")
-            log(e.toString())
-        }
-
-        log("")
-    }
-
-    // =====================================================
-    // SESSION KEYS
-    // =====================================================
-
-    private fun dumpSessionKeys(
-        chars: CameraCharacteristics
-    ) {
-
-        log("==============================")
-        log("AVAILABLE SESSION KEYS")
-        log("==============================")
-
-        if (Build.VERSION.SDK_INT < 28) {
+            log("")
+            log(
+                "=============================="
+            )
 
             log(
-                "Requires Android API 28+."
+                "TARGET KEY AVAILABILITY"
             )
 
+            log(
+                "=============================="
+            )
+
+            val requestNames =
+                chars.availableCaptureRequestKeys
+                    .map {
+                        it.name
+                    }
+                    .toSet()
+
+            val resultNames =
+                chars.availableCaptureResultKeys
+                    .map {
+                        it.name
+                    }
+                    .toSet()
+
+            val sessionNames =
+                if (
+                    Build.VERSION.SDK_INT >= 28
+                ) {
+
+                    chars.availableSessionKeys
+                        ?.map {
+                            it.name
+                        }
+                        ?.toSet()
+                        ?: emptySet()
+
+                } else {
+
+                    emptySet()
+                }
+
+            for (
+                name in targetKeyNames
+            ) {
+
+                val isRequest =
+                    requestNames.contains(
+                        name
+                    )
+
+                val isResult =
+                    resultNames.contains(
+                        name
+                    )
+
+                val isSession =
+                    sessionNames.contains(
+                        name
+                    )
+
+                if (
+                    isRequest ||
+                    isResult ||
+                    isSession
+                ) {
+
+                    log("")
+                    log(
+                        name
+                    )
+
+                    log(
+                        "  REQUEST = $isRequest"
+                    )
+
+                    log(
+                        "  RESULT  = $isResult"
+                    )
+
+                    log(
+                        "  SESSION = $isSession"
+                    )
+                }
+            }
+
+        } catch (
+            e: Throwable
+        ) {
+
             log("")
+            log(
+                "CHARACTERISTICS ERROR"
+            )
+
+            log(
+                e.javaClass.name
+            )
+
+            log(
+                e.message ?: ""
+            )
+        }
+    }
+
+    /*
+     * Open Camera 3 only so Android will let us create
+     * CaptureRequest templates and inspect their default
+     * values.
+     *
+     * No capture session is created.
+     * No image is taken.
+     */
+    private fun openCameraForRequestDefaults() {
+
+        if (
+            ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.CAMERA
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+
             return
         }
 
+        log("")
+        log(
+            "=============================="
+        )
+
+        log(
+            "OPENING CAMERA 3"
+        )
+
+        log(
+            "=============================="
+        )
+
         try {
 
-            val keys =
+            cameraManager.openCamera(
+                CAMERA_ID,
+
+                object :
+                    CameraDevice.StateCallback() {
+
+                    override fun onOpened(
+                        camera: CameraDevice
+                    ) {
+
+                        cameraDevice =
+                            camera
+
+                        log(
+                            "Camera opened."
+                        )
+
+                        inspectRequestKeys(
+                            camera
+                        )
+
+                        try {
+                            camera.close()
+                        } catch (_: Throwable) {
+                        }
+
+                        cameraDevice =
+                            null
+
+                        log("")
+                        log(
+                            "=============================="
+                        )
+
+                        log(
+                            "PROBE COMPLETE"
+                        )
+
+                        log(
+                            "=============================="
+                        )
+
+                        log("")
+                        log(
+                            "No image was captured."
+                        )
+
+                        log("")
+                        log(
+                            "Press COPY OUTPUT."
+                        )
+
+                        runOnUiThread {
+                            scanButton.isEnabled =
+                                true
+                        }
+                    }
+
+                    override fun onDisconnected(
+                        camera: CameraDevice
+                    ) {
+
+                        log(
+                            "Camera disconnected."
+                        )
+
+                        camera.close()
+
+                        cameraDevice =
+                            null
+
+                        runOnUiThread {
+                            scanButton.isEnabled =
+                                true
+                        }
+                    }
+
+                    override fun onError(
+                        camera: CameraDevice,
+                        error: Int
+                    ) {
+
+                        log(
+                            "Camera error: $error"
+                        )
+
+                        camera.close()
+
+                        cameraDevice =
+                            null
+
+                        runOnUiThread {
+                            scanButton.isEnabled =
+                                true
+                        }
+                    }
+                },
+
+                null
+            )
+
+        } catch (
+            e: Throwable
+        ) {
+
+            log(
+                "OPEN CAMERA ERROR"
+            )
+
+            log(
+                e.javaClass.name
+            )
+
+            log(
+                e.message ?: ""
+            )
+
+            runOnUiThread {
+                scanButton.isEnabled =
+                    true
+            }
+        }
+    }
+
+    private fun inspectRequestKeys(
+        camera: CameraDevice
+    ) {
+
+        val chars =
+            cameraManager.getCameraCharacteristics(
+                CAMERA_ID
+            )
+
+        val requestKeys =
+            chars.availableCaptureRequestKeys
+
+        val sessionKeys =
+            if (
+                Build.VERSION.SDK_INT >= 28
+            ) {
+
                 chars.availableSessionKeys
+                    ?: emptyList()
 
-            if (keys == null) {
+            } else {
 
-                log("NULL / NONE")
-                log("")
+                emptyList()
+            }
+
+        log("")
+        log(
+            "=============================="
+        )
+
+        log(
+            "TARGET REQUEST KEY TYPES"
+        )
+
+        log(
+            "=============================="
+        )
+
+        /*
+         * Inspect both PREVIEW and STILL templates because
+         * Vivo may give different defaults depending on
+         * request template.
+         */
+
+        inspectTemplate(
+            camera,
+            CameraDevice.TEMPLATE_PREVIEW,
+            "TEMPLATE_PREVIEW",
+            requestKeys,
+            sessionKeys
+        )
+
+        inspectTemplate(
+            camera,
+            CameraDevice.TEMPLATE_STILL_CAPTURE,
+            "TEMPLATE_STILL_CAPTURE",
+            requestKeys,
+            sessionKeys
+        )
+    }
+
+    private fun inspectTemplate(
+        camera: CameraDevice,
+        template: Int,
+        templateName: String,
+        requestKeys:
+            List<CaptureRequest.Key<*>>,
+        sessionKeys:
+            List<CaptureRequest.Key<*>>
+    ) {
+
+        log("")
+        log("")
+        log(
+            "################################"
+        )
+
+        log(
+            templateName
+        )
+
+        log(
+            "################################"
+        )
+
+        val builder =
+            try {
+
+                camera.createCaptureRequest(
+                    template
+                )
+
+            } catch (
+                e: Throwable
+            ) {
+
+                log(
+                    "Could not create template:"
+                )
+
+                log(
+                    e.toString()
+                )
+
                 return
             }
 
-            log("COUNT: ${keys.size}")
-            log("")
+        val request =
+            try {
 
-            keys
-                .sortedBy { it.name }
-                .forEachIndexed { index, key ->
+                builder.build()
 
-                    val marker =
-                        if (isInteresting(key.name)) {
-                            ">>>"
-                        } else {
-                            "   "
-                        }
+            } catch (
+                e: Throwable
+            ) {
 
-                    log(
-                        "$marker [$index] ${key.name}"
-                    )
-                }
+                log(
+                    "Could not build request:"
+                )
 
-        } catch (e: Throwable) {
+                log(
+                    e.toString()
+                )
 
-            log("ERROR:")
-            log(e.toString())
+                return
+            }
+
+        val keyMap =
+            mutableMapOf<
+                String,
+                CaptureRequest.Key<*>
+                >()
+
+        for (
+            key in requestKeys
+        ) {
+
+            keyMap[
+                key.name
+            ] = key
         }
 
-        log("")
+        for (
+            key in sessionKeys
+        ) {
+
+            keyMap[
+                key.name
+            ] = key
+        }
+
+        for (
+            name in targetKeyNames
+        ) {
+
+            val key =
+                keyMap[name]
+                    ?: continue
+
+            log("")
+            log(
+                "--------------------------------"
+            )
+
+            log(
+                name
+            )
+
+            val isSession =
+                sessionKeys.any {
+                    it.name ==
+                        name
+                }
+
+            log(
+                "SESSION KEY: $isSession"
+            )
+
+            /*
+             * Try reading the template's default value.
+             */
+
+            try {
+
+                @Suppress(
+                    "UNCHECKED_CAST"
+                )
+
+                val genericKey =
+                    key as
+                        CaptureRequest.Key<Any>
+
+                val value =
+                    request.get(
+                        genericKey
+                    )
+
+                log(
+                    "DEFAULT VALUE:"
+                )
+
+                log(
+                    formatValue(value)
+                )
+
+                log(
+                    "DEFAULT VALUE CLASS:"
+                )
+
+                log(
+                    value?.javaClass?.name
+                        ?: "null"
+                )
+
+            } catch (
+                e: Throwable
+            ) {
+
+                log(
+                    "DEFAULT READ ERROR:"
+                )
+
+                log(
+                    e.javaClass.name +
+                        ": " +
+                        (e.message ?: "")
+                )
+            }
+
+            /*
+             * Now inspect the actual CaptureRequest.Key
+             * object with reflection.
+             */
+
+            dumpReflectionInfo(
+                key
+            )
+        }
     }
 
-    // =====================================================
-    // CHARACTERISTIC KEYS
-    // =====================================================
-
-    private fun dumpCharacteristicKeys(
-        chars: CameraCharacteristics
+    /*
+     * Attempt to identify the internal type Android associates
+     * with the metadata key.
+     *
+     * Some Android versions block private-field reflection.
+     * That's fine -- we report exactly what was accessible.
+     */
+    private fun dumpReflectionInfo(
+        keyObject: Any
     ) {
 
-        log("==============================")
-        log("ALL CAMERA CHARACTERISTIC KEYS")
-        log("==============================")
+        log(
+            "REFLECTION:"
+        )
 
         try {
 
-            val keys =
-                chars.keys
+            log(
+                "Key Java class: " +
+                    keyObject.javaClass.name
+            )
 
-            log("COUNT: ${keys.size}")
-            log("")
+            dumpObjectFields(
+                keyObject,
+                "  ",
+                0
+            )
 
-            keys
-                .sortedBy { it.name }
-                .forEachIndexed { index, key ->
+        } catch (
+            e: Throwable
+        ) {
 
-                    val marker =
-                        if (isInteresting(key.name)) {
-                            "***"
-                        } else {
-                            "   "
-                        }
+            log(
+                "  Reflection failed:"
+            )
 
-                    log(
-                        "$marker [$index] ${key.name}"
-                    )
-                }
-
-        } catch (e: Throwable) {
-
-            log("ERROR:")
-            log(e.toString())
+            log(
+                "  " +
+                    e.javaClass.name +
+                    ": " +
+                    (e.message ?: "")
+            )
         }
-
-        log("")
     }
 
-    // =====================================================
-    // SESSION CHARACTERISTIC KEYS
-    // Android 15 / API 35+
-    // =====================================================
-
-    private fun dumpSessionCharacteristicKeys(
-        chars: CameraCharacteristics
+    private fun dumpObjectFields(
+        obj: Any,
+        indent: String,
+        depth: Int
     ) {
 
-        log("==============================")
-        log("SESSION CHARACTERISTIC KEYS")
-        log("==============================")
-
-        try {
-
-            val keys =
-                chars.availableSessionCharacteristicsKeys
-
-            log("COUNT: ${keys.size}")
-            log("")
-
-            keys
-                .sortedBy { it.name }
-                .forEachIndexed { index, key ->
-
-                    val marker =
-                        if (isInteresting(key.name)) {
-                            "***"
-                        } else {
-                            "   "
-                        }
-
-                    log(
-                        "$marker [$index] ${key.name}"
-                    )
-                }
-
-        } catch (e: Throwable) {
-
-            log("ERROR:")
-            log(e.toString())
-        }
-
-        log("")
-    }
-
-    // =====================================================
-    // PHYSICAL CAMERA REQUEST KEYS
-    // =====================================================
-
-    private fun dumpPhysicalRequestKeys(
-        chars: CameraCharacteristics
-    ) {
-
-        log("==============================")
-        log("PHYSICAL CAMERA REQUEST KEYS")
-        log("==============================")
-
-        if (Build.VERSION.SDK_INT < 28) {
-
-            log("Requires API 28+.")
-            log("")
+        if (
+            depth > 2
+        ) {
             return
         }
 
-        try {
+        val clazz =
+            obj.javaClass
 
-            val keys =
-                chars.availablePhysicalCameraRequestKeys
+        val fields =
+            try {
 
-            if (keys == null) {
+                clazz.declaredFields
 
-                log("NULL / NONE")
-                log("")
-                return
+            } catch (
+                _: Throwable
+            ) {
+
+                emptyArray<Field>()
             }
 
-            log("COUNT: ${keys.size}")
-            log("")
+        for (
+            field in fields
+        ) {
 
-            keys
-                .sortedBy { it.name }
-                .forEachIndexed { index, key ->
+            try {
 
-                    val marker =
-                        if (isInteresting(key.name)) {
-                            "***"
-                        } else {
-                            "   "
-                        }
+                field.isAccessible =
+                    true
 
-                    log(
-                        "$marker [$index] ${key.name}"
+                val value =
+                    field.get(
+                        obj
+                    )
+
+                log(
+                    indent +
+                        "FIELD " +
+                        field.name +
+                        " : " +
+                        field.type.name
+                )
+
+                log(
+                    indent +
+                        "VALUE = " +
+                        formatValue(value)
+                )
+
+                /*
+                 * CaptureRequest.Key wraps another internal key
+                 * object. If we find one, inspect that object too.
+                 */
+
+                if (
+                    value != null &&
+                    depth < 2 &&
+                    shouldRecurse(
+                        value
+                    )
+                ) {
+
+                    dumpObjectFields(
+                        value,
+                        indent + "  ",
+                        depth + 1
                     )
                 }
 
-        } catch (e: Throwable) {
+            } catch (
+                e: Throwable
+            ) {
 
-            log("ERROR:")
-            log(e.toString())
+                log(
+                    indent +
+                        "FIELD " +
+                        field.name +
+                        " = <BLOCKED: " +
+                        e.javaClass.simpleName +
+                        ">"
+                )
+            }
         }
-
-        log("")
     }
 
-    // =====================================================
-    // HELPERS
-    // =====================================================
-
-    private fun isInteresting(
-        name: String
+    private fun shouldRecurse(
+        value: Any
     ): Boolean {
 
-        val lower =
-            name.lowercase(
-                Locale.US
-            )
+        val name =
+            value.javaClass.name
+                .lowercase(
+                    Locale.US
+                )
 
-        return interestingTerms.any {
-            lower.contains(it)
-        }
+        return (
+            name.contains(
+                "camera"
+            ) ||
+            name.contains(
+                "metadata"
+            ) ||
+            name.contains(
+                "key"
+            )
+        )
     }
 
     private fun formatValue(
         value: Any?
     ): String {
 
-        if (value == null) {
+        if (
+            value == null
+        ) {
+
             return "null"
         }
 
-        return when (value) {
+        return when (
+            value
+        ) {
 
             is IntArray ->
                 value.contentToString()
@@ -750,6 +1068,12 @@ class MainActivity : AppCompatActivity() {
             is BooleanArray ->
                 value.contentToString()
 
+            is ShortArray ->
+                value.contentToString()
+
+            is CharArray ->
+                value.contentToString()
+
             is Array<*> ->
                 value.contentDeepToString()
 
@@ -764,8 +1088,54 @@ class MainActivity : AppCompatActivity() {
 
         runOnUiThread {
 
-            output.append(message)
-            output.append("\n")
+            output.append(
+                message
+            )
+
+            output.append(
+                "\n"
+            )
         }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions:
+            Array<out String>,
+        grantResults:
+            IntArray
+    ) {
+
+        super.onRequestPermissionsResult(
+            requestCode,
+            permissions,
+            grantResults
+        )
+
+        if (
+            requestCode ==
+            REQUEST_CAMERA &&
+            grantResults.isNotEmpty() &&
+            grantResults[0] ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+
+            startProbe()
+        }
+    }
+
+    override fun onDestroy() {
+
+        try {
+
+            cameraDevice?.close()
+
+        } catch (_: Throwable) {
+        }
+
+        cameraDevice =
+            null
+
+        super.onDestroy()
     }
 }
