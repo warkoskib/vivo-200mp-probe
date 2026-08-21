@@ -3,10 +3,12 @@ package com.example.vivo200mpprobe
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.ActivityInfo
 import android.content.pm.ApplicationInfo
 import android.content.pm.ComponentInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.os.Bundle
 import android.widget.Button
 import android.widget.LinearLayout
@@ -55,10 +57,6 @@ class MainActivity : AppCompatActivity() {
             30
         )
 
-        // ================================================
-        // SCAN BUTTON
-        // ================================================
-
         val scanButton = Button(this)
 
         scanButton.text = "SCAN VIVO CAMERA PACKAGES"
@@ -94,10 +92,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         root.addView(scanButton)
-
-        // ================================================
-        // COPY BUTTON
-        // ================================================
 
         val copyButton = Button(this)
 
@@ -139,24 +133,15 @@ class MainActivity : AppCompatActivity() {
 
         root.addView(copyButton)
 
-        // ================================================
-        // CLEAR BUTTON
-        // ================================================
-
         val clearButton = Button(this)
 
         clearButton.text = "CLEAR"
 
         clearButton.setOnClickListener {
-
             output.text = ""
         }
 
         root.addView(clearButton)
-
-        // ================================================
-        // OUTPUT
-        // ================================================
 
         scroll = ScrollView(this)
 
@@ -186,10 +171,6 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(root)
     }
-
-    // ====================================================
-    // MAIN SCAN
-    // ====================================================
 
     @Suppress("DEPRECATION")
     private fun runProbe() {
@@ -263,14 +244,8 @@ class MainActivity : AppCompatActivity() {
 
                 log("")
                 log("ERROR")
-
-                log(
-                    e.javaClass.name
-                )
-
-                log(
-                    e.message ?: ""
-                )
+                log(e.javaClass.name)
+                log(e.message ?: "")
             }
         }
 
@@ -300,10 +275,6 @@ class MainActivity : AppCompatActivity() {
         log("")
         log("Press COPY OUTPUT.")
     }
-
-    // ====================================================
-    // PACKAGE INFORMATION
-    // ====================================================
 
     @Suppress("DEPRECATION")
     private fun dumpPackageInfo(
@@ -378,19 +349,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         dumpRequestedPermissions(info)
-
         dumpActivities(info)
-
         dumpServices(info)
-
         dumpProviders(info)
-
         dumpReceivers(info)
     }
-
-    // ====================================================
-    // APPLICATION METADATA
-    // ====================================================
 
     private fun dumpApplicationMetadata(
         app: ApplicationInfo
@@ -409,7 +372,6 @@ class MainActivity : AppCompatActivity() {
         ) {
 
             log("None.")
-
             return
         }
 
@@ -417,11 +379,8 @@ class MainActivity : AppCompatActivity() {
 
             val value =
                 try {
-
                     meta.get(key)
-
                 } catch (_: Throwable) {
-
                     "<ERROR>"
                 }
 
@@ -430,10 +389,6 @@ class MainActivity : AppCompatActivity() {
             )
         }
     }
-
-    // ====================================================
-    // REQUESTED PERMISSIONS
-    // ====================================================
 
     private fun dumpRequestedPermissions(
         info: PackageInfo
@@ -453,19 +408,13 @@ class MainActivity : AppCompatActivity() {
         ) {
 
             log("None.")
-
             return
         }
 
         for (permission in permissions) {
-
             log(permission)
         }
     }
-
-    // ====================================================
-    // ACTIVITIES
-    // ====================================================
 
     private fun dumpActivities(
         info: PackageInfo
@@ -485,7 +434,6 @@ class MainActivity : AppCompatActivity() {
         ) {
 
             log("None visible.")
-
             return
         }
 
@@ -497,10 +445,6 @@ class MainActivity : AppCompatActivity() {
             )
         }
     }
-
-    // ====================================================
-    // SERVICES
-    // ====================================================
 
     private fun dumpServices(
         info: PackageInfo
@@ -520,7 +464,6 @@ class MainActivity : AppCompatActivity() {
         ) {
 
             log("None visible.")
-
             return
         }
 
@@ -532,10 +475,6 @@ class MainActivity : AppCompatActivity() {
             )
         }
     }
-
-    // ====================================================
-    // PROVIDERS
-    // ====================================================
 
     private fun dumpProviders(
         info: PackageInfo
@@ -555,7 +494,6 @@ class MainActivity : AppCompatActivity() {
         ) {
 
             log("None visible.")
-
             return
         }
 
@@ -606,10 +544,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ====================================================
-    // RECEIVERS
-    // ====================================================
-
     private fun dumpReceivers(
         info: PackageInfo
     ) {
@@ -628,7 +562,6 @@ class MainActivity : AppCompatActivity() {
         ) {
 
             log("None visible.")
-
             return
         }
 
@@ -640,10 +573,6 @@ class MainActivity : AppCompatActivity() {
             )
         }
     }
-
-    // ====================================================
-    // GENERIC COMPONENT
-    // ====================================================
 
     private fun dumpComponent(
         type: String,
@@ -667,9 +596,21 @@ class MainActivity : AppCompatActivity() {
             "Enabled: ${item.enabled}"
         )
 
+        val permission = when (item) {
+
+            is ActivityInfo ->
+                item.permission
+
+            is ServiceInfo ->
+                item.permission
+
+            else ->
+                null
+        }
+
         log(
             "Permission: ${
-                item.permission ?: "NONE"
+                permission ?: "NONE"
             }"
         )
 
@@ -679,7 +620,7 @@ class MainActivity : AppCompatActivity() {
 
         if (
             item.exported &&
-            item.permission == null
+            permission == null
         ) {
 
             log("")
@@ -688,10 +629,6 @@ class MainActivity : AppCompatActivity() {
             )
         }
     }
-
-    // ====================================================
-    // COMPONENT METADATA
-    // ====================================================
 
     private fun dumpMetadata(
         meta: Bundle?
@@ -711,11 +648,8 @@ class MainActivity : AppCompatActivity() {
 
             val value =
                 try {
-
                     meta.get(key)
-
                 } catch (_: Throwable) {
-
                     "<ERROR>"
                 }
 
@@ -724,10 +658,6 @@ class MainActivity : AppCompatActivity() {
             )
         }
     }
-
-    // ====================================================
-    // COUNT EXPORTED COMPONENTS
-    // ====================================================
 
     private fun countExported(
         info: PackageInfo
@@ -766,10 +696,6 @@ class MainActivity : AppCompatActivity() {
         return count
     }
 
-    // ====================================================
-    // OUTPUT
-    // ====================================================
-
     private fun log(
         text: String
     ) {
@@ -777,7 +703,6 @@ class MainActivity : AppCompatActivity() {
         runOnUiThread {
 
             output.append(text)
-
             output.append("\n")
         }
     }
