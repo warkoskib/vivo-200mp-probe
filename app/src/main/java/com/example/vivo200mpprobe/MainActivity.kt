@@ -14,7 +14,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var scroll: ScrollView
 
     private val targetFile =
-        "/system/etc/public.libraries-vivo.txt"
+        "/system/etc/public.libraries-mtk.txt"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -25,24 +25,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun buildUi() {
 
-        val root =
-            LinearLayout(this)
+        val root = LinearLayout(this)
 
-        root.orientation =
-            LinearLayout.VERTICAL
+        root.orientation = LinearLayout.VERTICAL
+        root.setPadding(20, 30, 20, 30)
 
-        root.setPadding(
-            20,
-            30,
-            20,
-            30
-        )
+        val button = Button(this)
 
-        val button =
-            Button(this)
-
-        button.text =
-            "READ VIVO LIBRARIES"
+        button.text = "READ MEDIATEK LIBRARIES"
 
         button.setOnClickListener {
             output.text = ""
@@ -51,21 +41,12 @@ class MainActivity : AppCompatActivity() {
 
         root.addView(button)
 
-        scroll =
-            ScrollView(this)
+        scroll = ScrollView(this)
 
-        output =
-            TextView(this)
+        output = TextView(this)
 
-        output.textSize =
-            14f
-
-        output.setPadding(
-            0,
-            20,
-            0,
-            100
-        )
+        output.textSize = 14f
+        output.setPadding(0, 20, 0, 100)
 
         scroll.addView(output)
 
@@ -83,46 +64,42 @@ class MainActivity : AppCompatActivity() {
 
     private fun readFile() {
 
-        log("VIVO PUBLIC LIBRARIES")
+        log("MEDIATEK PUBLIC LIBRARIES")
         log("==============================")
         log("")
         log(targetFile)
         log("")
 
-        val file =
-            File(targetFile)
+        val file = File(targetFile)
 
-        log(
-            "Exists: ${file.exists()}"
-        )
+        log("Exists: ${file.exists()}")
+        log("Readable: ${file.canRead()}")
+        log("Size: ${if (file.exists()) file.length() else -1} bytes")
 
-        log(
-            "Readable: ${file.canRead()}"
-        )
-
-        if (
-            !file.exists() ||
-            !file.canRead()
-        ) {
-
+        if (!file.exists()) {
             log("")
-            log("FILE UNAVAILABLE")
+            log("FILE DOES NOT EXIST")
+            return
+        }
 
+        if (!file.canRead()) {
+            log("")
+            log("ACCESS DENIED")
             return
         }
 
         try {
 
-            val lines =
-                file.readLines()
+            val lines = file.readLines()
 
             log("")
             log("==============================")
-            log("ALL LIBRARIES")
+            log("ALL MEDIATEK LIBRARIES")
             log("==============================")
 
-            for (line in lines) {
-                log(line)
+            for ((index, line) in lines.withIndex()) {
+
+                log("${index + 1}: $line")
             }
 
             log("")
@@ -130,62 +107,77 @@ class MainActivity : AppCompatActivity() {
             log("CAMERA / SENSOR / ISP MATCHES")
             log("==============================")
 
+            val terms = listOf(
+                "camera",
+                "cam",
+                "sensor",
+                "isp",
+                "jpeg",
+                "image",
+                "raw",
+                "remosaic",
+                "mtk",
+                "mediatek",
+                "3a",
+                "aaa",
+                "p1",
+                "p2"
+            )
+
             var matches = 0
 
-            for (line in lines) {
+            for ((index, line) in lines.withIndex()) {
 
-                val lower =
-                    line.lowercase()
+                val lower = line.lowercase()
 
                 if (
-                    lower.contains("camera") ||
-                    lower.contains("cam") ||
-                    lower.contains("sensor") ||
-                    lower.contains("isp") ||
-                    lower.contains("jpeg") ||
-                    lower.contains("image") ||
-                    lower.contains("vivo") ||
-                    lower.contains("hal") ||
-                    lower.contains("raw")
+                    terms.any {
+                        lower.contains(it)
+                    }
                 ) {
 
                     matches++
 
                     log(
-                        "*** $line"
+                        "*** LINE ${index + 1}: $line"
                     )
                 }
             }
 
             log("")
+            log("==============================")
+            log("RESULT")
+            log("==============================")
+
             log(
-                "Interesting libraries found: $matches"
+                "Total libraries: ${lines.size}"
+            )
+
+            log(
+                "Interesting matches: $matches"
             )
 
         } catch (e: Throwable) {
 
             log("")
+            log("==============================")
             log("READ ERROR")
-            log(
-                e.javaClass.name
-            )
-            log(
-                e.message ?: ""
-            )
+            log("==============================")
+
+            log(e.javaClass.name)
+            log(e.message ?: "")
         }
     }
 
-    private fun log(
-        message: String
-    ) {
+    private fun log(message: String) {
 
         runOnUiThread {
 
-            output.append(
-                "$message\n"
-            )
+            output.append(message)
+            output.append("\n")
 
             scroll.post {
+
                 scroll.fullScroll(
                     ScrollView.FOCUS_DOWN
                 )
