@@ -7,6 +7,7 @@ import android.graphics.ImageFormat
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureFailure
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.TotalCaptureResult
@@ -33,8 +34,13 @@ import java.util.concurrent.Executor
 class MainActivity : AppCompatActivity() {
 
     companion object {
+
         private const val CAMERA_PERMISSION_REQUEST = 1001
+
         private const val CAMERA_ID = "3"
+
+        private const val PREVIEW_WIDTH = 1440
+        private const val PREVIEW_HEIGHT = 1080
 
         private const val FULL_WIDTH = 16320
         private const val FULL_HEIGHT = 12288
@@ -48,20 +54,31 @@ class MainActivity : AppCompatActivity() {
 
     private var cameraDevice: CameraDevice? = null
     private var captureSession: CameraCaptureSession? = null
-    private var fullResReader: ImageReader? = null
+
+    private var previewReader: ImageReader? = null
+    private var jpegReader: ImageReader? = null
 
     private var sessionReady = false
 
-    // Vivo vendor controls
-    private val ultraHighResolutionKey =
-        CaptureRequest.Key(
-            "vivo.control.ultra_highresolution",
-            Int::class.javaObjectType
-        )
+    /*
+     * VERIFIED VIVO CAMERA 3 TAGS
+     */
 
     private val aiHighResolutionKey =
         CaptureRequest.Key(
             "vivo.control.ai_highresolution",
+            Int::class.javaObjectType
+        )
+
+    private val portraitHighResolutionKey =
+        CaptureRequest.Key(
+            "vivo.control.portrait_high_resolution",
+            Byte::class.javaObjectType
+        )
+
+    private val ultraHighResolutionKey =
+        CaptureRequest.Key(
+            "vivo.control.ultra_highresolution",
             Int::class.javaObjectType
         )
 
@@ -71,33 +88,33 @@ class MainActivity : AppCompatActivity() {
             Int::class.javaObjectType
         )
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-
-        buildUi()
-        startCameraThread()
-
-        log("VIVO 200 MP JPEG HEADER TEST")
-        log("==============================")
-        log("")
-        log("Camera ID: $CAMERA_ID")
-        log("Requested: $FULL_WIDTH x $FULL_HEIGHT")
-
-        val requestedMp =
-            FULL_WIDTH.toDouble() *
-                FULL_HEIGHT.toDouble() /
-                1_000_000.0
-
-        log(
-            "Requested MP: ${
-                String.format(
-                    Locale.US,
-                    "%.2f",
-                    requestedMp
-                )
-            }"
+    private val streamsUsageKey =
+        CaptureRequest.Key(
+            "vivo.control.streamsUsage",
+            IntArray::class.java
         )
 
+    private val vivoCameraIdKey =
+        CaptureRequest.Key(
+            "vivo.control.camera_id",
+            Int::class.javaObjectType
+        )
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+
+        super.onCreate(savedInstanceState)
+
+        createUi()
+        startCameraThread()
+
+        log("VIVO CAMERA 3")
+        log("STOCK 200 MP CONFIG TEST")
+        log("==============================")
+        log("")
+        log("Physical Camera: 3")
+        log("Preview: 1440 x 1080 YUV")
+        log("JPEG target: 16320 x 12288")
+        log("Target: 200.54 MP")
         log("")
 
         if (
@@ -106,7 +123,9 @@ class MainActivity : AppCompatActivity() {
                 Manifest.permission.CAMERA
             ) == PackageManager.PERMISSION_GRANTED
         ) {
-            startTest()
+
+            startCamera()
+
         } else {
 
             ActivityCompat.requestPermissions(
@@ -117,7 +136,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun buildUi() {
+    private fun createUi() {
 
         val root = LinearLayout(this)
 
@@ -147,6 +166,7 @@ class MainActivity : AppCompatActivity() {
             13f
 
         captureButton.setOnClickListener {
+
             capture200Mp()
         }
 
@@ -154,15 +174,15 @@ class MainActivity : AppCompatActivity() {
             captureButton
         )
 
-        val scrollView =
+        val scroll =
             ScrollView(this)
 
-        scrollView.addView(
+        scroll.addView(
             statusText
         )
 
         root.addView(
-            scrollView,
+            scroll,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0,
@@ -193,7 +213,7 @@ class MainActivity : AppCompatActivity() {
 
         cameraThread =
             HandlerThread(
-                "Vivo200MpThread"
+                "Vivo200MpCamera"
             )
 
         cameraThread.start()
@@ -204,22 +224,87 @@ class MainActivity : AppCompatActivity() {
             )
     }
 
-    private fun startTest() {
+    private fun startCamera() {
 
-        log("STEP 1 - CREATE 200 MP READER")
-        log("------------------------------")
+        log("STEP 1")
+        log("Creating stock-style streams...")
+        log("")
+
+        createReaders()
+
+        openCamera3()
+    }
+
+    private fun createReaders() {
+
+        /*
+         * Stock Vivo Camera 3:
+         * Stream 0 = 1440 x 1080 YUV
+         * Stream 1 = 16320 x 12288 JPEG/BLOB
+         */
 
         try {
 
-            fullResReader =
+            previewReader =
+                ImageReader.newInstance(
+                    PREVIEW_WIDTH,
+                    PREVIEW_HEIGHT,
+                    ImageFormat.YUV_420_888,
+                    4
+                )
+
+            previewReader
+                ?.setOnImageAvailableListener(
+                    { reader ->
+
+                        try {
+
+                            reader
+                                .acquireLatestImage()
+                                ?.close()
+
+                        } catch (
+                            _: Throwable
+                        ) {
+                        }
+
+                    },
+                    cameraHandler
+                )
+
+            log(
+                "OK: Preview reader " +
+                    "$PREVIEW_WIDTH x $PREVIEW_HEIGHT"
+            )
+
+        } catch (
+            e: Throwable
+        ) {
+
+            log(
+                "PREVIEW READER ERROR"
+            )
+
+            log(
+                e.javaClass.name
+            )
+
+            log(
+                e.message ?: ""
+            )
+        }
+
+        try {
+
+            jpegReader =
                 ImageReader.newInstance(
                     FULL_WIDTH,
                     FULL_HEIGHT,
                     ImageFormat.JPEG,
-                    1
+                    2
                 )
 
-            fullResReader
+            jpegReader
                 ?.setOnImageAvailableListener(
                     { reader ->
 
@@ -232,25 +317,16 @@ class MainActivity : AppCompatActivity() {
                             image =
                                 reader.acquireNextImage()
 
-                            if (image == null) {
+                            if (
+                                image == null
+                            ) {
 
                                 log(
-                                    "ImageReader returned null."
+                                    "JPEG ImageReader returned null."
                                 )
 
                                 return@setOnImageAvailableListener
                             }
-
-                            val readerWidth =
-                                image.width
-
-                            val readerHeight =
-                                image.height
-
-                            val readerMp =
-                                readerWidth.toDouble() *
-                                    readerHeight.toDouble() /
-                                    1_000_000.0
 
                             val buffer =
                                 image
@@ -272,34 +348,92 @@ class MainActivity : AppCompatActivity() {
                             log("==============================")
 
                             log(
-                                "ImageReader dimensions: " +
-                                    "$readerWidth x $readerHeight"
+                                "ImageReader: " +
+                                    "${image.width} x ${image.height}"
                             )
 
                             log(
-                                "ImageReader MP: ${
-                                    String.format(
-                                        Locale.US,
-                                        "%.2f",
-                                        readerMp
-                                    )
-                                }"
+                                "Bytes: ${bytes.size}"
                             )
 
-                            log(
-                                "JPEG bytes: ${bytes.size}"
-                            )
-
-                            val file =
-                                saveImage(
+                            val dimensions =
+                                parseJpegDimensions(
                                     bytes
                                 )
 
-                            verifyJpeg(
-                                bytes,
-                                file,
-                                readerWidth,
-                                readerHeight
+                            if (
+                                dimensions != null
+                            ) {
+
+                                val width =
+                                    dimensions.first
+
+                                val height =
+                                    dimensions.second
+
+                                val mp =
+                                    width.toDouble() *
+                                        height.toDouble() /
+                                        1_000_000.0
+
+                                log("")
+                                log(
+                                    "JPEG SOF:"
+                                )
+
+                                log(
+                                    "$width x $height"
+                                )
+
+                                log(
+                                    String.format(
+                                        Locale.US,
+                                        "%.2f MP",
+                                        mp
+                                    )
+                                )
+
+                                log("")
+                                log("==============================")
+
+                                if (
+                                    width ==
+                                    FULL_WIDTH &&
+                                    height ==
+                                    FULL_HEIGHT
+                                ) {
+
+                                    log(
+                                        "SUCCESS:"
+                                    )
+
+                                    log(
+                                        "TRUE 200 MP JPEG"
+                                    )
+
+                                } else {
+
+                                    log(
+                                        "NOT 200 MP"
+                                    )
+
+                                    log(
+                                        "HAL returned " +
+                                            "$width x $height"
+                                    )
+                                }
+
+                                log("==============================")
+
+                            } else {
+
+                                log(
+                                    "Could not parse JPEG SOF."
+                                )
+                            }
+
+                            saveJpeg(
+                                bytes
                             )
 
                         } catch (
@@ -308,7 +442,7 @@ class MainActivity : AppCompatActivity() {
 
                             log("")
                             log(
-                                "IMAGE PROCESSING ERROR"
+                                "JPEG PROCESSING ERROR"
                             )
 
                             log(
@@ -336,20 +470,16 @@ class MainActivity : AppCompatActivity() {
                 )
 
             log(
-                "SUCCESS: ImageReader created."
-            )
-
-            log(
-                "$FULL_WIDTH x $FULL_HEIGHT"
+                "OK: JPEG reader " +
+                    "$FULL_WIDTH x $FULL_HEIGHT"
             )
 
         } catch (
             e: Throwable
         ) {
 
-            log("")
             log(
-                "IMAGE READER FAILED"
+                "JPEG READER ERROR"
             )
 
             log(
@@ -359,14 +489,10 @@ class MainActivity : AppCompatActivity() {
             log(
                 e.message ?: ""
             )
-
-            return
         }
-
-        openCamera()
     }
 
-    private fun openCamera() {
+    private fun openCamera3() {
 
         val manager =
             getSystemService(
@@ -374,23 +500,24 @@ class MainActivity : AppCompatActivity() {
             ) as CameraManager
 
         if (
-            ActivityCompat
-                .checkSelfPermission(
-                    this,
-                    Manifest.permission.CAMERA
-                ) !=
+            ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.CAMERA
+            ) !=
             PackageManager.PERMISSION_GRANTED
         ) {
+
             return
         }
 
         log("")
-        log("STEP 2 - OPEN CAMERA 3")
-        log("------------------------------")
+        log("STEP 2")
+        log("Opening Camera 3...")
 
         try {
 
             manager.openCamera(
+
                 CAMERA_ID,
 
                 object :
@@ -407,7 +534,7 @@ class MainActivity : AppCompatActivity() {
                             "SUCCESS: Camera 3 opened."
                         )
 
-                        createStillOnlySession(
+                        createSession(
                             camera
                         )
                     }
@@ -436,7 +563,9 @@ class MainActivity : AppCompatActivity() {
                             "CAMERA ERROR: $error"
                         )
 
-                        when (error) {
+                        when (
+                            error
+                        ) {
 
                             ERROR_CAMERA_IN_USE ->
                                 log(
@@ -478,9 +607,8 @@ class MainActivity : AppCompatActivity() {
             e: Throwable
         ) {
 
-            log("")
             log(
-                "OPEN CAMERA FAILED"
+                "OPEN CAMERA EXCEPTION"
             )
 
             log(
@@ -493,28 +621,28 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun createStillOnlySession(
+    private fun createSession(
         camera: CameraDevice
     ) {
 
-        val surface =
-            fullResReader
+        val previewSurface =
+            previewReader
+                ?.surface
+                ?: return
+
+        val jpegSurface =
+            jpegReader
                 ?.surface
                 ?: return
 
         log("")
-        log(
-            "STEP 3 - CREATE STILL-ONLY SESSION"
-        )
-
-        log(
-            "------------------------------"
-        )
+        log("STEP 3")
+        log("Creating stock-style session...")
+        log("")
 
         val callback =
             object :
-                CameraCaptureSession
-                    .StateCallback() {
+                CameraCaptureSession.StateCallback() {
 
                 override fun onConfigured(
                     session:
@@ -527,34 +655,17 @@ class MainActivity : AppCompatActivity() {
                     sessionReady =
                         true
 
-                    log("")
                     log(
-                        "******************************"
+                        "SESSION CONFIGURED"
                     )
 
                     log(
-                        "STILL-ONLY SESSION CONFIGURED"
+                        "Starting Camera 3 preview..."
                     )
 
-                    log(
-                        "******************************"
+                    startPreview(
+                        session
                     )
-
-                    log("")
-                    log(
-                        "No preview request was started."
-                    )
-
-                    log(
-                        "Press CAPTURE 200 MP."
-                    )
-
-                    runOnUiThread {
-
-                        captureButton
-                            .isEnabled =
-                            true
-                    }
                 }
 
                 override fun onConfigureFailed(
@@ -581,8 +692,13 @@ class MainActivity : AppCompatActivity() {
 
                 val outputs =
                     listOf(
+
                         OutputConfiguration(
-                            surface
+                            previewSurface
+                        ),
+
+                        OutputConfiguration(
+                            jpegSurface
                         )
                     )
 
@@ -595,61 +711,39 @@ class MainActivity : AppCompatActivity() {
                         )
                     }
 
-                val configuration =
+                val config =
                     SessionConfiguration(
-                        SessionConfiguration
-                            .SESSION_REGULAR,
+                        SessionConfiguration.SESSION_REGULAR,
                         outputs,
                         executor,
                         callback
                     )
 
-                try {
+                /*
+                 * Session parameters copied from
+                 * verified Camera 3 200 MP state.
+                 */
 
-                    val builder =
-                        camera
-                            .createCaptureRequest(
-                                CameraDevice
-                                    .TEMPLATE_STILL_CAPTURE
-                            )
-
-                    builder.addTarget(
-                        surface
+                val builder =
+                    camera.createCaptureRequest(
+                        CameraDevice.TEMPLATE_PREVIEW
                     )
 
-                    applyVivoKeys(
-                        builder,
-                        "SESSION"
-                    )
+                builder.addTarget(
+                    previewSurface
+                )
 
-                    configuration
-                        .setSessionParameters(
-                            builder.build()
-                        )
+                applyStock200MpControls(
+                    builder,
+                    "SESSION"
+                )
 
-                    log(
-                        "Vivo session parameters attached."
-                    )
-
-                } catch (
-                    e: Throwable
-                ) {
-
-                    log(
-                        "Session parameter error:"
-                    )
-
-                    log(
-                        e.javaClass.name
-                    )
-
-                    log(
-                        e.message ?: ""
-                    )
-                }
+                config.setSessionParameters(
+                    builder.build()
+                )
 
                 camera.createCaptureSession(
-                    configuration
+                    config
                 )
 
             } else {
@@ -660,7 +754,8 @@ class MainActivity : AppCompatActivity() {
 
                 camera.createCaptureSession(
                     listOf(
-                        surface
+                        previewSurface,
+                        jpegSurface
                     ),
                     callback,
                     cameraHandler
@@ -673,7 +768,112 @@ class MainActivity : AppCompatActivity() {
 
             log("")
             log(
-                "CREATE SESSION EXCEPTION"
+                "CREATE SESSION ERROR"
+            )
+
+            log(
+                e.javaClass.name
+            )
+
+            log(
+                e.message ?: ""
+            )
+        }
+    }
+
+    private fun startPreview(
+        session:
+            CameraCaptureSession
+    ) {
+
+        val camera =
+            cameraDevice
+                ?: return
+
+        val surface =
+            previewReader
+                ?.surface
+                ?: return
+
+        try {
+
+            val builder =
+                camera.createCaptureRequest(
+                    CameraDevice.TEMPLATE_PREVIEW
+                )
+
+            builder.addTarget(
+                surface
+            )
+
+            builder.set(
+                CaptureRequest.CONTROL_MODE,
+                CameraMetadata.CONTROL_MODE_AUTO
+            )
+
+            builder.set(
+                CaptureRequest.CONTROL_AE_MODE,
+                CaptureRequest.CONTROL_AE_MODE_ON
+            )
+
+            builder.set(
+                CaptureRequest.CONTROL_AF_MODE,
+                CaptureRequest
+                    .CONTROL_AF_MODE_CONTINUOUS_PICTURE
+            )
+
+            applyStock200MpControls(
+                builder,
+                "PREVIEW"
+            )
+
+            session.setRepeatingRequest(
+
+                builder.build(),
+
+                object :
+                    CameraCaptureSession.CaptureCallback() {
+
+                    override fun onCaptureFailed(
+                        session:
+                            CameraCaptureSession,
+                        request:
+                            CaptureRequest,
+                        failure:
+                            CaptureFailure
+                    ) {
+
+                        log(
+                            "Preview failure: " +
+                                failure.reason
+                        )
+                    }
+                },
+
+                cameraHandler
+            )
+
+            log("")
+            log("==============================")
+            log("CAMERA 3 PREVIEW RUNNING")
+            log("==============================")
+            log("")
+            log("Press CAPTURE 200 MP.")
+
+            runOnUiThread {
+
+                captureButton
+                    .isEnabled =
+                    true
+            }
+
+        } catch (
+            e: Throwable
+        ) {
+
+            log("")
+            log(
+                "PREVIEW ERROR"
             )
 
             log(
@@ -688,10 +888,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun capture200Mp() {
 
-        if (!sessionReady) {
+        if (
+            !sessionReady
+        ) {
 
             log(
-                "Session is not ready."
+                "Session not ready."
             )
 
             return
@@ -699,31 +901,16 @@ class MainActivity : AppCompatActivity() {
 
         val camera =
             cameraDevice
+                ?: return
 
         val session =
             captureSession
+                ?: return
 
-        val surface =
-            fullResReader
+        val jpegSurface =
+            jpegReader
                 ?.surface
-
-        if (
-            camera == null ||
-            session == null ||
-            surface == null
-        ) {
-
-            log("")
-            log(
-                "Capture cannot start."
-            )
-
-            log(
-                "Camera/session/surface missing."
-            )
-
-            return
-        }
+                ?: return
 
         runOnUiThread {
 
@@ -734,49 +921,53 @@ class MainActivity : AppCompatActivity() {
 
         log("")
         log("==============================")
-        log("SENDING STILL CAPTURE")
+        log("200 MP CAPTURE REQUEST")
         log("==============================")
 
         try {
 
             val builder =
-                camera
-                    .createCaptureRequest(
-                        CameraDevice
-                            .TEMPLATE_STILL_CAPTURE
-                    )
+                camera.createCaptureRequest(
+                    CameraDevice.TEMPLATE_STILL_CAPTURE
+                )
 
             builder.addTarget(
-                surface
+                jpegSurface
             )
 
             builder.set(
-                CaptureRequest
-                    .CONTROL_AE_MODE,
-                CaptureRequest
-                    .CONTROL_AE_MODE_ON
+                CaptureRequest.CONTROL_MODE,
+                CameraMetadata.CONTROL_MODE_AUTO
             )
 
             builder.set(
-                CaptureRequest
-                    .CONTROL_AF_MODE,
+                CaptureRequest.CONTROL_AE_MODE,
+                CaptureRequest.CONTROL_AE_MODE_ON
+            )
+
+            builder.set(
+                CaptureRequest.CONTROL_AF_MODE,
                 CaptureRequest
                     .CONTROL_AF_MODE_CONTINUOUS_PICTURE
             )
 
             builder.set(
-                CaptureRequest
-                    .JPEG_QUALITY,
+                CaptureRequest.JPEG_QUALITY,
                 100.toByte()
             )
 
             builder.set(
-                CaptureRequest
-                    .JPEG_ORIENTATION,
+                CaptureRequest.JPEG_ORIENTATION,
                 90
             )
 
-            applyVivoKeys(
+            /*
+             * We currently keep Camera 3's verified
+             * streamsUsage value here rather than
+             * copying the Camera 0 value from dumps 5-7.
+             */
+
+            applyStock200MpControls(
                 builder,
                 "CAPTURE"
             )
@@ -786,8 +977,7 @@ class MainActivity : AppCompatActivity() {
                 builder.build(),
 
                 object :
-                    CameraCaptureSession
-                        .CaptureCallback() {
+                    CameraCaptureSession.CaptureCallback() {
 
                     override fun onCaptureStarted(
                         session:
@@ -800,7 +990,6 @@ class MainActivity : AppCompatActivity() {
                             Long
                     ) {
 
-                        log("")
                         log(
                             "Capture started."
                         )
@@ -819,13 +1008,12 @@ class MainActivity : AppCompatActivity() {
                             TotalCaptureResult
                     ) {
 
-                        log("")
                         log(
                             "Capture request completed."
                         )
 
                         log(
-                            "Waiting for JPEG verification..."
+                            "Waiting for JPEG..."
                         )
 
                         runOnUiThread {
@@ -851,11 +1039,8 @@ class MainActivity : AppCompatActivity() {
                         )
 
                         log(
-                            "Reason: ${failure.reason}"
-                        )
-
-                        log(
-                            "Frame: ${failure.frameNumber}"
+                            "Reason: " +
+                                failure.reason
                         )
 
                         runOnUiThread {
@@ -896,7 +1081,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun applyVivoKeys(
+    private fun applyStock200MpControls(
         builder:
             CaptureRequest.Builder,
         stage:
@@ -904,13 +1089,7 @@ class MainActivity : AppCompatActivity() {
     ) {
 
         log("")
-        log(
-            "$stage VIVO KEYS"
-        )
-
-        log(
-            "------------------------------"
-        )
+        log("$stage VIVO CONTROLS")
 
         try {
 
@@ -920,7 +1099,7 @@ class MainActivity : AppCompatActivity() {
             )
 
             log(
-                "OK: ai_highresolution = 0"
+                "OK ai_highresolution = 0"
             )
 
         } catch (
@@ -928,11 +1107,29 @@ class MainActivity : AppCompatActivity() {
         ) {
 
             log(
-                "FAILED: ai_highresolution"
+                "FAIL ai_highresolution: " +
+                    (e.message ?: "")
+            )
+        }
+
+        try {
+
+            builder.set(
+                portraitHighResolutionKey,
+                1.toByte()
             )
 
             log(
-                e.message ?: ""
+                "OK portrait_high_resolution = 1"
+            )
+
+        } catch (
+            e: Throwable
+        ) {
+
+            log(
+                "FAIL portrait_high_resolution: " +
+                    (e.message ?: "")
             )
         }
 
@@ -944,7 +1141,7 @@ class MainActivity : AppCompatActivity() {
             )
 
             log(
-                "OK: ultra_highresolution = 1"
+                "OK ultra_highresolution = 1"
             )
 
         } catch (
@@ -952,11 +1149,8 @@ class MainActivity : AppCompatActivity() {
         ) {
 
             log(
-                "FAILED: ultra_highresolution"
-            )
-
-            log(
-                e.message ?: ""
+                "FAIL ultra_highresolution: " +
+                    (e.message ?: "")
             )
         }
 
@@ -968,7 +1162,7 @@ class MainActivity : AppCompatActivity() {
             )
 
             log(
-                "OK: real200mp_switch_on = 1"
+                "OK real200mp_switch_on = 1"
             )
 
         } catch (
@@ -976,34 +1170,79 @@ class MainActivity : AppCompatActivity() {
         ) {
 
             log(
-                "FAILED: real200mp_switch_on"
+                "FAIL real200mp_switch_on: " +
+                    (e.message ?: "")
+            )
+        }
+
+        try {
+
+            builder.set(
+                streamsUsageKey,
+                intArrayOf(
+                    2,
+                    1,
+                    0
+                )
             )
 
             log(
-                e.message ?: ""
+                "OK streamsUsage = [2, 1, 0]"
+            )
+
+        } catch (
+            e: Throwable
+        ) {
+
+            log(
+                "FAIL streamsUsage: " +
+                    (e.message ?: "")
+            )
+        }
+
+        try {
+
+            builder.set(
+                vivoCameraIdKey,
+                3
+            )
+
+            log(
+                "OK camera_id = 3"
+            )
+
+        } catch (
+            e: Throwable
+        ) {
+
+            log(
+                "FAIL camera_id: " +
+                    (e.message ?: "")
             )
         }
     }
 
-    private fun saveImage(
-        data: ByteArray
-    ): File? {
+    private fun saveJpeg(
+        bytes: ByteArray
+    ) {
 
-        return try {
+        try {
 
             val dir =
                 getExternalFilesDir(
-                    android.os
-                        .Environment
+                    android.os.Environment
                         .DIRECTORY_PICTURES
-                ) ?: return null
+                )
+                    ?: return
 
-            if (!dir.exists()) {
+            if (
+                !dir.exists()
+            ) {
 
                 dir.mkdirs()
             }
 
-            val timestamp =
+            val time =
                 SimpleDateFormat(
                     "yyyyMMdd_HHmmss",
                     Locale.US
@@ -1014,7 +1253,7 @@ class MainActivity : AppCompatActivity() {
             val file =
                 File(
                     dir,
-                    "Vivo_200MP_Verify_$timestamp.jpg"
+                    "Vivo_Camera3_200MP_$time.jpg"
                 )
 
             FileOutputStream(
@@ -1022,18 +1261,9 @@ class MainActivity : AppCompatActivity() {
             ).use {
 
                 it.write(
-                    data
+                    bytes
                 )
             }
-
-            log("")
-            log("==============================")
-            log("JPEG SAVED")
-            log("==============================")
-
-            log(
-                file.absolutePath
-            )
 
             val mb =
                 file.length()
@@ -1041,240 +1271,37 @@ class MainActivity : AppCompatActivity() {
                     1024.0 /
                     1024.0
 
+            log("")
             log(
-                "File size: ${
-                    String.format(
-                        Locale.US,
-                        "%.3f MB",
-                        mb
-                    )
-                }"
+                "Saved:"
             )
 
-            file
+            log(
+                file.absolutePath
+            )
+
+            log(
+                String.format(
+                    Locale.US,
+                    "File size: %.3f MB",
+                    mb
+                )
+            )
 
         } catch (
             e: Throwable
         ) {
 
-            log("")
             log(
-                "SAVE FAILED"
-            )
-
-            log(
-                e.javaClass.name
+                "SAVE ERROR"
             )
 
             log(
                 e.message ?: ""
             )
-
-            null
         }
     }
 
-    private fun verifyJpeg(
-        bytes: ByteArray,
-        file: File?,
-        readerWidth: Int,
-        readerHeight: Int
-    ) {
-
-        log("")
-        log("==============================")
-        log("JPEG SOF HEADER")
-        log("==============================")
-
-        val jpegDimensions =
-            parseJpegDimensions(
-                bytes
-            )
-
-        if (
-            jpegDimensions == null
-        ) {
-
-            log(
-                "ERROR: JPEG SOF marker not found."
-            )
-
-            log("")
-            log(
-                "Could not verify encoded JPEG dimensions."
-            )
-
-            return
-        }
-
-        val jpegWidth =
-            jpegDimensions.first
-
-        val jpegHeight =
-            jpegDimensions.second
-
-        val jpegMp =
-            jpegWidth.toDouble() *
-                jpegHeight.toDouble() /
-                1_000_000.0
-
-        log(
-            "JPEG encoded dimensions:"
-        )
-
-        log(
-            "$jpegWidth x $jpegHeight"
-        )
-
-        log(
-            "JPEG encoded MP: ${
-                String.format(
-                    Locale.US,
-                    "%.2f MP",
-                    jpegMp
-                )
-            }"
-        )
-
-        log("")
-        log("==============================")
-        log("COMPARISON")
-        log("==============================")
-
-        log(
-            "Requested:"
-        )
-
-        log(
-            "$FULL_WIDTH x $FULL_HEIGHT"
-        )
-
-        log("")
-
-        log(
-            "ImageReader:"
-        )
-
-        log(
-            "$readerWidth x $readerHeight"
-        )
-
-        log("")
-
-        log(
-            "JPEG SOF:"
-        )
-
-        log(
-            "$jpegWidth x $jpegHeight"
-        )
-
-        if (
-            file != null
-        ) {
-
-            val fileMb =
-                file.length()
-                    .toDouble() /
-                    1024.0 /
-                    1024.0
-
-            log("")
-
-            log(
-                "JPEG file size:"
-            )
-
-            log(
-                String.format(
-                    Locale.US,
-                    "%.3f MB",
-                    fileMb
-                )
-            )
-        }
-
-        log("")
-        log("==============================")
-        log("VERIFICATION RESULT")
-        log("==============================")
-
-        if (
-            jpegWidth ==
-            FULL_WIDTH &&
-            jpegHeight ==
-            FULL_HEIGHT
-        ) {
-
-            log(
-                "JPEG HEADER CONFIRMS 200 MP"
-            )
-
-            log(
-                "$jpegWidth x $jpegHeight"
-            )
-
-            log(
-                String.format(
-                    Locale.US,
-                    "%.2f MP",
-                    jpegMp
-                )
-            )
-
-            log("")
-            log(
-                "The encoded JPEG itself reports"
-            )
-
-            log(
-                "the requested 200 MP dimensions."
-            )
-
-        } else {
-
-            log(
-                "JPEG IS NOT ENCODED AT 200 MP"
-            )
-
-            log("")
-
-            log(
-                "ImageReader:"
-            )
-
-            log(
-                "$readerWidth x $readerHeight"
-            )
-
-            log(
-                "JPEG:"
-            )
-
-            log(
-                "$jpegWidth x $jpegHeight"
-            )
-
-            log("")
-
-            log(
-                "The ImageReader dimensions do not"
-            )
-
-            log(
-                "match the encoded JPEG dimensions."
-            )
-        }
-    }
-
-    /*
-     * Reads the JPEG byte stream directly.
-     *
-     * JPEG SOF markers contain the actual
-     * encoded image width and height.
-     *
-     * We do NOT need to decode a 200 MP bitmap.
-     */
     private fun parseJpegDimensions(
         data: ByteArray
     ): Pair<Int, Int>? {
@@ -1282,20 +1309,16 @@ class MainActivity : AppCompatActivity() {
         if (
             data.size < 4
         ) {
+
             return null
         }
 
-        // JPEG must begin FF D8
         if (
             (data[0].toInt() and 0xFF) !=
             0xFF ||
             (data[1].toInt() and 0xFF) !=
             0xD8
         ) {
-
-            log(
-                "WARNING: JPEG SOI marker missing."
-            )
 
             return null
         }
@@ -1309,8 +1332,7 @@ class MainActivity : AppCompatActivity() {
         ) {
 
             if (
-                (data[offset]
-                    .toInt() and 0xFF) !=
+                (data[offset].toInt() and 0xFF) !=
                 0xFF
             ) {
 
@@ -1319,12 +1341,10 @@ class MainActivity : AppCompatActivity() {
                 continue
             }
 
-            // Skip repeated FF padding
             while (
                 offset <
                 data.size &&
-                (data[offset]
-                    .toInt() and 0xFF) ==
+                (data[offset].toInt() and 0xFF) ==
                 0xFF
             ) {
 
@@ -1335,6 +1355,7 @@ class MainActivity : AppCompatActivity() {
                 offset >=
                 data.size
             ) {
+
                 break
             }
 
@@ -1345,7 +1366,6 @@ class MainActivity : AppCompatActivity() {
 
             offset++
 
-            // Standalone markers
             if (
                 marker == 0xD8 ||
                 marker == 0xD9 ||
@@ -1357,8 +1377,6 @@ class MainActivity : AppCompatActivity() {
                 continue
             }
 
-            // Start of Scan.
-            // SOF should already have appeared.
             if (
                 marker == 0xDA
             ) {
@@ -1374,7 +1392,7 @@ class MainActivity : AppCompatActivity() {
                 break
             }
 
-            val segmentLength =
+            val length =
                 (
                     (data[offset]
                         .toInt() and
@@ -1387,7 +1405,7 @@ class MainActivity : AppCompatActivity() {
                         )
 
             if (
-                segmentLength < 2
+                length < 2
             ) {
 
                 return null
@@ -1411,18 +1429,6 @@ class MainActivity : AppCompatActivity() {
             if (
                 isSof
             ) {
-
-                /*
-                 * Segment:
-                 *
-                 * offset + 0 = length high
-                 * offset + 1 = length low
-                 * offset + 2 = precision
-                 * offset + 3 = height high
-                 * offset + 4 = height low
-                 * offset + 5 = width high
-                 * offset + 6 = width low
-                 */
 
                 if (
                     offset + 6 >=
@@ -1463,38 +1469,36 @@ class MainActivity : AppCompatActivity() {
             }
 
             offset +=
-                segmentLength
+                length
         }
 
         return null
     }
 
     override fun onRequestPermissionsResult(
-        requestCode: Int,
+        requestCode:
+            Int,
         permissions:
             Array<out String>,
         grantResults:
             IntArray
     ) {
 
-        super
-            .onRequestPermissionsResult(
-                requestCode,
-                permissions,
-                grantResults
-            )
+        super.onRequestPermissionsResult(
+            requestCode,
+            permissions,
+            grantResults
+        )
 
         if (
             requestCode ==
             CAMERA_PERMISSION_REQUEST &&
-            grantResults
-                .isNotEmpty() &&
+            grantResults.isNotEmpty() &&
             grantResults[0] ==
-            PackageManager
-                .PERMISSION_GRANTED
+            PackageManager.PERMISSION_GRANTED
         ) {
 
-            startTest()
+            startCamera()
 
         } else {
 
@@ -1505,6 +1509,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+
+        sessionReady =
+            false
 
         try {
 
@@ -1528,7 +1535,17 @@ class MainActivity : AppCompatActivity() {
 
         try {
 
-            fullResReader
+            previewReader
+                ?.close()
+
+        } catch (
+            _: Throwable
+        ) {
+        }
+
+        try {
+
+            jpegReader
                 ?.close()
 
         } catch (
