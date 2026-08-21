@@ -11,36 +11,34 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import java.io.File
+import java.io.RandomAccessFile
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var output: TextView
     private lateinit var scroll: ScrollView
 
-    private val roots = listOf(
-        "/vendor/lib64",
-        "/vendor/lib",
-        "/vendor/etc",
-        "/system/lib64",
-        "/system/lib",
-        "/system/etc",
-        "/odm/lib64",
-        "/odm/lib",
-        "/odm/etc"
-    )
+    private val rootPath =
+        "/vendor/lib64/camera"
 
-    private val terms = listOf(
-        "camera",
-        "cam_",
-        "cam.",
-        "sensor",
+    private val searchTerms = listOf(
+        "200mp",
+        "200m",
+        "16320",
+        "12288",
         "remosaic",
+        "fullsize",
+        "full_size",
+        "sensor",
+        "sensormode",
+        "sensor_mode",
+        "scenario",
+        "capture",
         "raw",
         "jpeg",
         "isp",
-        "imgsensor",
-        "mtkcam",
-        "vivo"
+        "quad",
+        "pixel"
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -48,29 +46,35 @@ class MainActivity : AppCompatActivity() {
 
         buildUi()
 
-        log("CAMERA FILE DISCOVERY")
+        log("VENDOR CAMERA DIRECTORY PROBE")
         log("==============================")
         log("")
-        log("Press SCAN CAMERA FILES.")
+        log("Target:")
+        log(rootPath)
         log("")
-        log("When finished, press COPY OUTPUT")
-        log("and paste the results into ChatGPT.")
+        log("Press SCAN VENDOR CAMERA.")
     }
 
     private fun buildUi() {
 
-        val root = LinearLayout(this)
+        val root =
+            LinearLayout(this)
 
-        root.orientation = LinearLayout.VERTICAL
-        root.setPadding(20, 30, 20, 30)
+        root.orientation =
+            LinearLayout.VERTICAL
 
-        // -------------------------------------------------
-        // SCAN BUTTON
-        // -------------------------------------------------
+        root.setPadding(
+            20,
+            30,
+            20,
+            30
+        )
 
-        val scanButton = Button(this)
+        val scanButton =
+            Button(this)
 
-        scanButton.text = "SCAN CAMERA FILES"
+        scanButton.text =
+            "SCAN VENDOR CAMERA"
 
         scanButton.setOnClickListener {
 
@@ -81,7 +85,7 @@ class MainActivity : AppCompatActivity() {
             Thread {
 
                 try {
-                    runScan()
+                    runProbe()
                 } finally {
 
                     runOnUiThread {
@@ -94,13 +98,11 @@ class MainActivity : AppCompatActivity() {
 
         root.addView(scanButton)
 
-        // -------------------------------------------------
-        // COPY BUTTON
-        // -------------------------------------------------
+        val copyButton =
+            Button(this)
 
-        val copyButton = Button(this)
-
-        copyButton.text = "COPY OUTPUT"
+        copyButton.text =
+            "COPY OUTPUT"
 
         copyButton.setOnClickListener {
 
@@ -111,7 +113,7 @@ class MainActivity : AppCompatActivity() {
 
                 Toast.makeText(
                     this,
-                    "There is no output to copy yet.",
+                    "No output to copy yet.",
                     Toast.LENGTH_SHORT
                 ).show()
 
@@ -123,30 +125,27 @@ class MainActivity : AppCompatActivity() {
                     Context.CLIPBOARD_SERVICE
                 ) as ClipboardManager
 
-            val clip =
+            clipboard.setPrimaryClip(
                 ClipData.newPlainText(
-                    "Vivo Camera Scan Results",
+                    "Vendor Camera Probe",
                     text
                 )
-
-            clipboard.setPrimaryClip(clip)
+            )
 
             Toast.makeText(
                 this,
-                "Output copied to clipboard",
+                "Output copied",
                 Toast.LENGTH_SHORT
             ).show()
         }
 
         root.addView(copyButton)
 
-        // -------------------------------------------------
-        // CLEAR BUTTON
-        // -------------------------------------------------
+        val clearButton =
+            Button(this)
 
-        val clearButton = Button(this)
-
-        clearButton.text = "CLEAR OUTPUT"
+        clearButton.text =
+            "CLEAR"
 
         clearButton.setOnClickListener {
             output.text = ""
@@ -154,15 +153,16 @@ class MainActivity : AppCompatActivity() {
 
         root.addView(clearButton)
 
-        // -------------------------------------------------
-        // OUTPUT AREA
-        // -------------------------------------------------
+        scroll =
+            ScrollView(this)
 
-        scroll = ScrollView(this)
+        output =
+            TextView(this)
 
-        output = TextView(this)
+        output.textSize =
+            13f
 
-        output.textSize = 13f
+        output.setTextIsSelectable(true)
 
         output.setPadding(
             0,
@@ -170,8 +170,6 @@ class MainActivity : AppCompatActivity() {
             0,
             100
         )
-
-        output.setTextIsSelectable(true)
 
         scroll.addView(output)
 
@@ -187,208 +185,284 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
     }
 
-    private fun runScan() {
+    private fun runProbe() {
 
-        log("CAMERA FILE DISCOVERY")
+        log("VENDOR CAMERA DIRECTORY PROBE")
         log("==============================")
         log("")
 
-        log("Searching:")
-        log("/vendor")
-        log("/system")
-        log("/odm")
+        val root =
+            File(rootPath)
 
-        log("")
-        log("Search terms:")
         log(
-            terms.joinToString(
-                separator = ", "
-            )
+            "Exists: ${root.exists()}"
         )
 
-        var totalMatches = 0
+        log(
+            "Readable: ${root.canRead()}"
+        )
 
-        for (rootPath in roots) {
+        log(
+            "Directory: ${root.isDirectory}"
+        )
+
+        if (
+            !root.exists() ||
+            !root.isDirectory
+        ) {
 
             log("")
-            log("")
-            log("==============================")
-            log("SCANNING")
-            log(rootPath)
-            log("==============================")
-
-            val root = File(rootPath)
-
             log(
-                "Exists: ${root.exists()}"
+                "Target directory unavailable."
             )
 
-            log(
-                "Readable: ${root.canRead()}"
-            )
+            return
+        }
 
-            log(
-                "Directory: ${root.isDirectory}"
-            )
+        log("")
+        log("==============================")
+        log("DIRECTORY TREE")
+        log("==============================")
 
-            if (!root.exists()) {
+        var fileCount = 0
+        var dirCount = 0
 
-                log("RESULT: DOES NOT EXIST")
-                continue
-            }
+        fun walk(
+            file: File,
+            depth: Int
+        ) {
 
-            if (!root.canRead()) {
+            val indent =
+                "  ".repeat(depth)
 
-                log("RESULT: ACCESS DENIED")
-                continue
-            }
+            if (file.isDirectory) {
 
-            if (!root.isDirectory) {
+                dirCount++
 
-                log("RESULT: NOT A DIRECTORY")
-                continue
-            }
+                log("")
+                log(
+                    "${indent}[DIR] ${file.absolutePath}"
+                )
 
-            try {
+                log(
+                    "${indent}Readable: ${file.canRead()}"
+                )
 
                 val children =
-                    root.listFiles()
+                    try {
+                        file.listFiles()
+                    } catch (_: Throwable) {
+                        null
+                    }
 
                 if (children == null) {
 
                     log(
-                        "RESULT: Directory exists but cannot be listed."
+                        "${indent}Cannot list directory."
                     )
 
-                    continue
+                    return
                 }
 
                 log(
-                    "Entries visible: ${children.size}"
+                    "${indent}Children: ${children.size}"
                 )
 
-                var rootMatches = 0
-
-                for (file in children) {
-
-                    val name =
-                        file.name.lowercase()
-
-                    if (
-                        terms.any {
-                            name.contains(it)
-                        }
-                    ) {
-
-                        totalMatches++
-                        rootMatches++
-
-                        log("")
-                        log("--------------------------------")
-                        log("MATCH #$totalMatches")
-                        log("--------------------------------")
-
-                        log(
-                            "Name: ${file.name}"
-                        )
-
-                        log(
-                            "Path: ${file.absolutePath}"
-                        )
-
-                        log(
-                            "Type: ${
-                                if (file.isDirectory)
-                                    "DIRECTORY"
-                                else
-                                    "FILE"
-                            }"
-                        )
-
-                        log(
-                            "Readable: ${file.canRead()}"
-                        )
-
-                        log(
-                            "Writable: ${file.canWrite()}"
-                        )
-
-                        if (file.isFile) {
-
-                            log(
-                                "Size: ${file.length()} bytes"
-                            )
-
-                            log(
-                                "Extension: ${file.extension}"
-                            )
-                        }
-
-                        if (file.isDirectory) {
-
-                            try {
-
-                                val subCount =
-                                    file.listFiles()?.size
-
-                                log(
-                                    "Visible child entries: " +
-                                        (subCount ?: "UNKNOWN")
-                                )
-
-                            } catch (e: Throwable) {
-
-                                log(
-                                    "Cannot inspect child directory: " +
-                                        (e.message ?: "")
-                                )
-                            }
-                        }
-                    }
+                for (child in children) {
+                    walk(
+                        child,
+                        depth + 1
+                    )
                 }
 
-                log("")
-                log(
-                    "Matches in $rootPath: $rootMatches"
-                )
+            } else {
 
-            } catch (e: Throwable) {
+                fileCount++
 
                 log("")
-                log("SCAN ERROR")
-
                 log(
-                    e.javaClass.name
+                    "${indent}[FILE] ${file.absolutePath}"
                 )
 
                 log(
-                    e.message ?: ""
+                    "${indent}Readable: ${file.canRead()}"
                 )
+
+                log(
+                    "${indent}Writable: ${file.canWrite()}"
+                )
+
+                log(
+                    "${indent}Size: ${file.length()} bytes"
+                )
+
+                if (
+                    file.canRead() &&
+                    file.isFile
+                ) {
+
+                    searchFile(
+                        file,
+                        indent
+                    )
+                }
             }
         }
 
-        log("")
-        log("")
-        log("==============================")
-        log("SCAN COMPLETE")
-        log("==============================")
-
-        log(
-            "Total matches: $totalMatches"
+        walk(
+            root,
+            0
         )
 
         log("")
+        log("")
+        log("==============================")
+        log("SUMMARY")
+        log("==============================")
+
         log(
-            "Press COPY OUTPUT."
+            "Directories found: $dirCount"
         )
+
+        log(
+            "Files found: $fileCount"
+        )
+
+        log("")
+        log("Probe complete.")
+        log("Press COPY OUTPUT.")
     }
 
-    private fun log(message: String) {
+    private fun searchFile(
+        file: File,
+        indent: String
+    ) {
+
+        try {
+
+            val maxBytes =
+                8L * 1024L * 1024L
+
+            val bytesToRead =
+                minOf(
+                    file.length(),
+                    maxBytes
+                ).toInt()
+
+            if (bytesToRead <= 0) {
+                return
+            }
+
+            val data =
+                ByteArray(
+                    bytesToRead
+                )
+
+            RandomAccessFile(
+                file,
+                "r"
+            ).use { raf ->
+
+                raf.readFully(
+                    data
+                )
+            }
+
+            val text =
+                buildAsciiView(
+                    data
+                )
+
+            var foundAny =
+                false
+
+            for (term in searchTerms) {
+
+                if (
+                    text.contains(
+                        term,
+                        ignoreCase = true
+                    )
+                ) {
+
+                    if (!foundAny) {
+
+                        log(
+                            "${indent}*** STRING MATCHES ***"
+                        )
+
+                        foundAny =
+                            true
+                    }
+
+                    log(
+                        "${indent}FOUND: $term"
+                    )
+                }
+            }
+
+            if (foundAny) {
+
+                log(
+                    "${indent}Readable content contains camera-related strings."
+                )
+            }
+
+        } catch (e: Throwable) {
+
+            log(
+                "${indent}Read/search failed: " +
+                    e.javaClass.simpleName +
+                    ": " +
+                    (e.message ?: "")
+            )
+        }
+    }
+
+    private fun buildAsciiView(
+        data: ByteArray
+    ): String {
+
+        val builder =
+            StringBuilder(
+                data.size
+            )
+
+        for (b in data) {
+
+            val value =
+                b.toInt() and 0xFF
+
+            if (
+                value in 32..126
+            ) {
+
+                builder.append(
+                    value.toChar()
+                )
+
+            } else {
+
+                builder.append(' ')
+            }
+        }
+
+        return builder.toString()
+    }
+
+    private fun log(
+        message: String
+    ) {
 
         runOnUiThread {
 
-            output.append(message)
-            output.append("\n")
+            output.append(
+                message
+            )
+
+            output.append(
+                "\n"
+            )
         }
     }
 }
