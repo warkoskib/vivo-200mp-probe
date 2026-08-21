@@ -3,10 +3,8 @@ package com.example.vivo200mpprobe
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.graphics.ImageFormat
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
-import android.hardware.camera2.params.StreamConfigurationMap
 import android.os.Bundle
 import android.util.Size
 import android.widget.Button
@@ -19,19 +17,73 @@ import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
-    companion object {
-        private const val FIRST_ID = 0
-        private const val LAST_ID = 30
-
-        private const val TARGET_WIDTH = 16320
-        private const val TARGET_HEIGHT = 12288
-
-        private const val BIG_MP_THRESHOLD = 40.0
-    }
-
     private lateinit var output: TextView
     private lateinit var scroll: ScrollView
     private lateinit var cameraManager: CameraManager
+
+    // =========================================================
+    // VIVO CHARACTERISTIC KEYS FOUND IN STOCK Camera.apk
+    // =========================================================
+
+    private val sensorModeSizeListKey =
+        CameraCharacteristics.Key(
+            "com.vivo.sensorModeSizeList",
+            IntArray::class.java
+        )
+
+    private val overrideSensorSizeKey =
+        CameraCharacteristics.Key(
+            "com.vivo.chi.override.SensorSize",
+            IntArray::class.java
+        )
+
+    private val remosaicTypeIntKey =
+        CameraCharacteristics.Key(
+            "com.vivo.RemosaicType",
+            Int::class.javaObjectType
+        )
+
+    private val remosaicTypeArrayKey =
+        CameraCharacteristics.Key(
+            "com.vivo.RemosaicType",
+            IntArray::class.java
+        )
+
+    private val actualSizeKey =
+        CameraCharacteristics.Key(
+            "com.vivo.ActualSize",
+            IntArray::class.java
+        )
+
+    private val mtkActualSizeKey =
+        CameraCharacteristics.Key(
+            "com.vivo.mtk.ActualSize",
+            IntArray::class.java
+        )
+
+    private val jpegNeedUpscaleIntKey =
+        CameraCharacteristics.Key(
+            "com.vivo.JPEGNeedUpscale",
+            Int::class.javaObjectType
+        )
+
+    private val jpegNeedUpscaleArrayKey =
+        CameraCharacteristics.Key(
+            "com.vivo.JPEGNeedUpscale",
+            IntArray::class.java
+        )
+
+    private val supportHalDownscaleRemosaicIntKey =
+        CameraCharacteristics.Key(
+            "com.vivo.SupportHalDownscaleRemosaic",
+            Int::class.javaObjectType
+        )
+
+    private val supportHalDownscaleRemosaicArrayKey =
+        CameraCharacteristics.Key(
+            "com.vivo.SupportHalDownscaleRemosaic",
+            IntArray::class.java
+        )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,32 +93,48 @@ class MainActivity : AppCompatActivity() {
 
         buildUi()
 
-        log("VIVO HIDDEN CAMERA ID PROBE")
+        log("VIVO HIDDEN SENSOR SIZE PROBE")
         log("==============================")
         log("")
-        log("Directly probing camera IDs:")
-        log("$FIRST_ID through $LAST_ID")
+        log("Keys extracted from stock Vivo Camera.apk:")
         log("")
-        log("This does NOT rely on cameraIdList.")
+        log("com.vivo.sensorModeSizeList")
+        log("com.vivo.chi.override.SensorSize")
+        log("com.vivo.RemosaicType")
+        log("com.vivo.ActualSize")
+        log("com.vivo.mtk.ActualSize")
+        log("com.vivo.JPEGNeedUpscale")
+        log("com.vivo.SupportHalDownscaleRemosaic")
         log("")
-        log("Press PROBE IDS 0-30.")
+        log("Press PROBE CAMERA IDS 0-7.")
     }
 
     private fun buildUi() {
 
         val root = LinearLayout(this)
 
-        root.orientation = LinearLayout.VERTICAL
-        root.setPadding(20, 30, 20, 30)
+        root.orientation =
+            LinearLayout.VERTICAL
 
-        val probeButton = Button(this)
+        root.setPadding(
+            20,
+            30,
+            20,
+            30
+        )
 
-        probeButton.text = "PROBE IDS 0-30"
+        val probeButton =
+            Button(this)
+
+        probeButton.text =
+            "PROBE CAMERA IDS 0-7"
 
         probeButton.setOnClickListener {
 
             output.text = ""
-            probeButton.isEnabled = false
+
+            probeButton.isEnabled =
+                false
 
             Thread {
 
@@ -75,28 +143,34 @@ class MainActivity : AppCompatActivity() {
                 } finally {
 
                     runOnUiThread {
-                        probeButton.isEnabled = true
+                        probeButton.isEnabled =
+                            true
                     }
                 }
 
             }.start()
         }
 
-        root.addView(probeButton)
+        root.addView(
+            probeButton
+        )
 
-        val copyButton = Button(this)
+        val copyButton =
+            Button(this)
 
-        copyButton.text = "COPY OUTPUT"
+        copyButton.text =
+            "COPY OUTPUT"
 
         copyButton.setOnClickListener {
 
-            val text = output.text.toString()
+            val text =
+                output.text.toString()
 
             if (text.isBlank()) {
 
                 Toast.makeText(
                     this,
-                    "No output yet.",
+                    "No output to copy.",
                     Toast.LENGTH_SHORT
                 ).show()
 
@@ -110,7 +184,7 @@ class MainActivity : AppCompatActivity() {
 
             clipboard.setPrimaryClip(
                 ClipData.newPlainText(
-                    "Vivo Hidden Camera Probe",
+                    "Vivo Hidden Sensor Size Probe",
                     text
                 )
             )
@@ -122,27 +196,47 @@ class MainActivity : AppCompatActivity() {
             ).show()
         }
 
-        root.addView(copyButton)
+        root.addView(
+            copyButton
+        )
 
-        val clearButton = Button(this)
+        val clearButton =
+            Button(this)
 
-        clearButton.text = "CLEAR OUTPUT"
+        clearButton.text =
+            "CLEAR OUTPUT"
 
         clearButton.setOnClickListener {
             output.text = ""
         }
 
-        root.addView(clearButton)
+        root.addView(
+            clearButton
+        )
 
-        scroll = ScrollView(this)
+        scroll =
+            ScrollView(this)
 
-        output = TextView(this)
+        output =
+            TextView(this)
 
-        output.textSize = 13f
-        output.setTextIsSelectable(true)
-        output.setPadding(0, 20, 0, 120)
+        output.textSize =
+            13f
 
-        scroll.addView(output)
+        output.setTextIsSelectable(
+            true
+        )
+
+        output.setPadding(
+            0,
+            20,
+            0,
+            120
+        )
+
+        scroll.addView(
+            output
+        )
 
         root.addView(
             scroll,
@@ -153,62 +247,57 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
-        setContentView(root)
+        setContentView(
+            root
+        )
     }
+
+    // =========================================================
+    // MAIN PROBE
+    // =========================================================
 
     private fun runProbe() {
 
-        log("VIVO HIDDEN CAMERA ID PROBE")
+        log("VIVO HIDDEN SENSOR SIZE PROBE")
         log("==============================")
         log("")
-
-        log("==============================")
-        log("PUBLIC CAMERA ID LIST")
-        log("==============================")
 
         try {
 
             val publicIds =
                 cameraManager.cameraIdList
 
-            if (publicIds.isEmpty()) {
+            log("==============================")
+            log("PUBLIC CAMERA IDS")
+            log("==============================")
 
-                log("No public IDs returned.")
-
-            } else {
-
-                for (id in publicIds) {
-                    log("PUBLIC: $id")
-                }
+            for (id in publicIds) {
+                log(id)
             }
+
+            log("")
 
         } catch (e: Throwable) {
 
-            log("cameraIdList error:")
-            log(e.javaClass.name)
-            log(e.message ?: "")
+            log(
+                "Unable to enumerate public IDs:"
+            )
+
+            log(
+                e.toString()
+            )
         }
 
-        log("")
-        log("==============================")
-        log("DIRECT ID PROBE")
-        log("==============================")
+        var validCount =
+            0
 
-        var validCount = 0
-        var hiddenCount = 0
-        var largeSensorCount = 0
+        var hiddenSizeCount =
+            0
 
-        val publicIdSet =
-            try {
-                cameraManager.cameraIdList.toSet()
-            } catch (_: Throwable) {
-                emptySet()
-            }
-
-        for (idNumber in FIRST_ID..LAST_ID) {
+        for (number in 0..7) {
 
             val id =
-                idNumber.toString()
+                number.toString()
 
             log("")
             log("")
@@ -219,58 +308,130 @@ class MainActivity : AppCompatActivity() {
             try {
 
                 val chars =
-                    cameraManager.getCameraCharacteristics(
-                        id
-                    )
+                    cameraManager
+                        .getCameraCharacteristics(
+                            id
+                        )
 
                 validCount++
 
-                val hidden =
-                    !publicIdSet.contains(id)
-
-                if (hidden) {
-
-                    hiddenCount++
-
-                    log("*** HIDDEN / NOT PUBLICLY ENUMERATED ***")
-                }
-
-                log("STATUS: VALID")
-
-                dumpCameraBasics(
-                    id,
+                dumpStandardSensorSize(
                     chars
                 )
 
-                val map =
-                    chars.get(
-                        CameraCharacteristics
-                            .SCALER_STREAM_CONFIGURATION_MAP
+                log("")
+                log("==============================")
+                log("VIVO HIDDEN CHARACTERISTICS")
+                log("==============================")
+
+                val sensorModes =
+                    readIntArrayKey(
+                        chars,
+                        sensorModeSizeListKey,
+                        "com.vivo.sensorModeSizeList"
                     )
 
-                if (map == null) {
+                if (
+                    sensorModes != null &&
+                    sensorModes.isNotEmpty()
+                ) {
 
-                    log("")
-                    log("NO STREAM CONFIGURATION MAP")
+                    hiddenSizeCount++
 
-                } else {
-
-                    val foundLarge =
-                        dumpStreamSummary(
-                            map
-                        )
-
-                    if (foundLarge) {
-                        largeSensorCount++
-                    }
+                    dumpPossibleSizePairs(
+                        sensorModes,
+                        "sensorModeSizeList"
+                    )
                 }
+
+                val overrideSize =
+                    readIntArrayKey(
+                        chars,
+                        overrideSensorSizeKey,
+                        "com.vivo.chi.override.SensorSize"
+                    )
+
+                if (
+                    overrideSize != null &&
+                    overrideSize.isNotEmpty()
+                ) {
+
+                    dumpPossibleSizePairs(
+                        overrideSize,
+                        "override.SensorSize"
+                    )
+                }
+
+                val actualSize =
+                    readIntArrayKey(
+                        chars,
+                        actualSizeKey,
+                        "com.vivo.ActualSize"
+                    )
+
+                if (
+                    actualSize != null &&
+                    actualSize.isNotEmpty()
+                ) {
+
+                    dumpPossibleSizePairs(
+                        actualSize,
+                        "ActualSize"
+                    )
+                }
+
+                val mtkActualSize =
+                    readIntArrayKey(
+                        chars,
+                        mtkActualSizeKey,
+                        "com.vivo.mtk.ActualSize"
+                    )
+
+                if (
+                    mtkActualSize != null &&
+                    mtkActualSize.isNotEmpty()
+                ) {
+
+                    dumpPossibleSizePairs(
+                        mtkActualSize,
+                        "mtk.ActualSize"
+                    )
+                }
+
+                readFlexibleInt(
+                    chars,
+                    "com.vivo.RemosaicType",
+                    remosaicTypeIntKey,
+                    remosaicTypeArrayKey
+                )
+
+                readFlexibleInt(
+                    chars,
+                    "com.vivo.JPEGNeedUpscale",
+                    jpegNeedUpscaleIntKey,
+                    jpegNeedUpscaleArrayKey
+                )
+
+                readFlexibleInt(
+                    chars,
+                    "com.vivo.SupportHalDownscaleRemosaic",
+                    supportHalDownscaleRemosaicIntKey,
+                    supportHalDownscaleRemosaicArrayKey
+                )
+
+                searchCharacteristicNames(
+                    chars
+                )
 
             } catch (e: Throwable) {
 
-                log("STATUS: INVALID / INACCESSIBLE")
+                log(
+                    "STATUS: INVALID / INACCESSIBLE"
+                )
 
                 log(
-                    "${e.javaClass.simpleName}: " +
+                    e.javaClass.simpleName +
+                        ": " +
                         (e.message ?: "")
                 )
             }
@@ -283,19 +444,32 @@ class MainActivity : AppCompatActivity() {
         log("==============================")
 
         log(
-            "IDs tested: ${LAST_ID - FIRST_ID + 1}"
-        )
-
-        log(
             "Valid IDs: $validCount"
         )
 
         log(
-            "Hidden valid IDs: $hiddenCount"
+            "IDs returning sensorModeSizeList: $hiddenSizeCount"
+        )
+
+        log("")
+        log(
+            "Look specifically for:"
         )
 
         log(
-            "IDs with >=40 MP sensor/output clue: $largeSensorCount"
+            "16320 x 12288"
+        )
+
+        log(
+            "8160 x 6144"
+        )
+
+        log(
+            "200.54 MP"
+        )
+
+        log(
+            "50.14 MP"
         )
 
         log("")
@@ -304,451 +478,508 @@ class MainActivity : AppCompatActivity() {
         log("==============================")
 
         log("")
-        log("Search output for:")
-        log("16320")
-        log("12288")
-        log("200 MP")
-        log(">=40 MP")
-        log("HIDDEN")
+        log(
+            "Press COPY OUTPUT."
+        )
     }
 
-    private fun dumpCameraBasics(
-        id: String,
-        chars: CameraCharacteristics
+    // =========================================================
+    // STANDARD SENSOR DATA
+    // =========================================================
+
+    private fun dumpStandardSensorSize(
+        chars:
+            CameraCharacteristics
     ) {
 
-        val facing =
+        val pixel =
             chars.get(
-                CameraCharacteristics.LENS_FACING
+                CameraCharacteristics
+                    .SENSOR_INFO_PIXEL_ARRAY_SIZE
             )
 
-        val hardwareLevel =
+        val active =
             chars.get(
-                CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL
+                CameraCharacteristics
+                    .SENSOR_INFO_ACTIVE_ARRAY_SIZE
             )
 
-        val pixelArray =
-            chars.get(
-                CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE
-            )
-
-        val activeArray =
-            chars.get(
-                CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE
-            )
-
-        val physicalSize =
-            chars.get(
-                CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE
-            )
-
-        val capabilities =
-            chars.get(
-                CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES
-            )
-
-        log("")
-        log("Lens facing:")
         log(
-            facingName(facing)
+            "STATUS: VALID"
         )
 
         log("")
-        log("Hardware level:")
         log(
-            hardwareLevelName(
-                hardwareLevel
-            )
+            "PUBLIC PIXEL ARRAY:"
         )
 
-        log("")
-        log("Pixel array:")
+        if (pixel == null) {
 
-        if (pixelArray == null) {
-
-            log("NOT EXPOSED")
+            log(
+                "NOT EXPOSED"
+            )
 
         } else {
 
-            log(
-                "${pixelArray.width} x ${pixelArray.height}"
+            logSize(
+                pixel.width,
+                pixel.height
             )
-
-            val mp =
-                megapixels(
-                    pixelArray.width,
-                    pixelArray.height
-                )
-
-            log(
-                String.format(
-                    Locale.US,
-                    "%.2f MP",
-                    mp
-                )
-            )
-
-            if (
-                pixelArray.width ==
-                TARGET_WIDTH &&
-                pixelArray.height ==
-                TARGET_HEIGHT
-            ) {
-
-                log("")
-                log("********************************")
-                log("EXACT 200 MP SENSOR FOUND")
-                log("CAMERA ID: $id")
-                log("16320 x 12288")
-                log("********************************")
-            }
-
-            if (
-                mp >=
-                BIG_MP_THRESHOLD
-            ) {
-
-                log(
-                    "*** >=40 MP SENSOR ARRAY ***"
-                )
-            }
         }
 
         log("")
-        log("Active array:")
         log(
-            activeArray?.toString()
-                ?: "NOT EXPOSED"
+            "PUBLIC ACTIVE ARRAY:"
         )
 
-        log("")
-        log("Physical size:")
         log(
-            physicalSize?.toString()
+            active?.toString()
                 ?: "NOT EXPOSED"
-        )
-
-        val rawCapable =
-            capabilities?.contains(
-                CameraCharacteristics
-                    .REQUEST_AVAILABLE_CAPABILITIES_RAW
-            ) == true
-
-        log("")
-        log(
-            "RAW capability: $rawCapable"
         )
     }
 
-    private fun dumpStreamSummary(
-        map: StreamConfigurationMap
-    ): Boolean {
+    // =========================================================
+    // DIRECT INT[] KEY QUERY
+    // =========================================================
+
+    private fun readIntArrayKey(
+        chars:
+            CameraCharacteristics,
+        key:
+            CameraCharacteristics.Key<IntArray>,
+        name:
+            String
+    ): IntArray? {
 
         log("")
-        log("==============================")
-        log("STREAM SUMMARY")
-        log("==============================")
+        log("--------------------------------")
+        log(name)
+        log("--------------------------------")
 
-        var anyLarge =
-            false
+        return try {
 
-        val formats =
-            listOf(
-                ImageFormat.RAW_SENSOR,
-                ImageFormat.RAW10,
-                ImageFormat.RAW12,
-                ImageFormat.RAW_PRIVATE,
-                ImageFormat.JPEG,
-                ImageFormat.YUV_420_888,
-                ImageFormat.PRIVATE,
-                ImageFormat.HEIC
-            )
-
-        for (format in formats) {
-
-            log("")
-            log(
-                formatName(format)
-            )
-
-            val sizes =
-                try {
-                    map.getOutputSizes(format)
-                } catch (_: Throwable) {
-                    null
-                }
-
-            if (
-                sizes == null ||
-                sizes.isEmpty()
-            ) {
-
-                log("  NOT EXPOSED")
-                continue
-            }
-
-            val largest =
-                sizes.maxByOrNull {
-                    pixels(it)
-                }
-
-            if (largest == null) {
-
-                log("  NO SIZE")
-                continue
-            }
-
-            val mp =
-                megapixels(
-                    largest.width,
-                    largest.height
+            val value =
+                chars.get(
+                    key
                 )
 
-            log(
-                "  Largest: " +
-                    "${largest.width} x ${largest.height}"
-            )
-
-            log(
-                String.format(
-                    Locale.US,
-                    "  %.2f MP",
-                    mp
-                )
-            )
-
-            if (
-                largest.width ==
-                TARGET_WIDTH &&
-                largest.height ==
-                TARGET_HEIGHT
-            ) {
+            if (value == null) {
 
                 log(
-                    "  *** EXACT 16320 x 12288 OUTPUT FOUND ***"
+                    "VALUE: null"
                 )
 
-                anyLarge =
-                    true
-            }
-
-            if (
-                mp >=
-                BIG_MP_THRESHOLD
-            ) {
-
-                log(
-                    "  *** >=40 MP OUTPUT ***"
-                )
-
-                anyLarge =
-                    true
-            }
-        }
-
-        log("")
-        log("HIGH RES JPEG:")
-
-        try {
-
-            val highRes =
-                map.getHighResolutionOutputSizes(
-                    ImageFormat.JPEG
-                )
-
-            if (
-                highRes == null ||
-                highRes.isEmpty()
-            ) {
-
-                log(
-                    "  NONE"
-                )
+                null
 
             } else {
 
-                val largestHigh =
-                    highRes.maxByOrNull {
-                        pixels(it)
-                    }
+                log(
+                    "TYPE: IntArray"
+                )
 
-                if (largestHigh != null) {
+                log(
+                    "LENGTH: ${value.size}"
+                )
 
-                    val mp =
-                        megapixels(
-                            largestHigh.width,
-                            largestHigh.height
-                        )
+                log(
+                    "RAW VALUE:"
+                )
 
-                    log(
-                        "  Largest: " +
-                            "${largestHigh.width} x ${largestHigh.height}"
-                    )
+                log(
+                    value.contentToString()
+                )
 
-                    log(
-                        String.format(
-                            Locale.US,
-                            "  %.2f MP",
-                            mp
-                        )
-                    )
-
-                    if (
-                        largestHigh.width ==
-                        TARGET_WIDTH &&
-                        largestHigh.height ==
-                        TARGET_HEIGHT
-                    ) {
-
-                        log(
-                            "  *** EXACT 200 MP HIGH-RES OUTPUT ***"
-                        )
-
-                        anyLarge =
-                            true
-                    }
-
-                    if (
-                        mp >=
-                        BIG_MP_THRESHOLD
-                    ) {
-
-                        log(
-                            "  *** >=40 MP HIGH-RES OUTPUT ***"
-                        )
-
-                        anyLarge =
-                            true
-                    }
-                }
+                value
             }
 
         } catch (e: Throwable) {
 
             log(
-                "  Query failed: " +
-                    e.javaClass.simpleName
+                "READ FAILED"
+            )
+
+            log(
+                e.javaClass.simpleName +
+                    ": " +
+                    (e.message ?: "")
+            )
+
+            null
+        }
+    }
+
+    // =========================================================
+    // FLEXIBLE INT / INT ARRAY QUERY
+    // =========================================================
+
+    private fun readFlexibleInt(
+        chars:
+            CameraCharacteristics,
+        name:
+            String,
+        intKey:
+            CameraCharacteristics.Key<Int>,
+        arrayKey:
+            CameraCharacteristics.Key<IntArray>
+    ) {
+
+        log("")
+        log("--------------------------------")
+        log(name)
+        log("--------------------------------")
+
+        var success =
+            false
+
+        try {
+
+            val value =
+                chars.get(
+                    intKey
+                )
+
+            if (value != null) {
+
+                log(
+                    "TYPE: Integer"
+                )
+
+                log(
+                    "VALUE: $value"
+                )
+
+                success =
+                    true
+            }
+
+        } catch (_: Throwable) {
+        }
+
+        if (success) {
+            return
+        }
+
+        try {
+
+            val value =
+                chars.get(
+                    arrayKey
+                )
+
+            if (value != null) {
+
+                log(
+                    "TYPE: IntArray"
+                )
+
+                log(
+                    "LENGTH: ${value.size}"
+                )
+
+                log(
+                    "VALUE:"
+                )
+
+                log(
+                    value.contentToString()
+                )
+
+                success =
+                    true
+            }
+
+        } catch (_: Throwable) {
+        }
+
+        if (!success) {
+
+            log(
+                "No value returned using Integer or IntArray."
+            )
+        }
+    }
+
+    // =========================================================
+    // INTERPRET INT ARRAYS AS POSSIBLE SIZE PAIRS
+    // =========================================================
+
+    private fun dumpPossibleSizePairs(
+        data:
+            IntArray,
+        label:
+            String
+    ) {
+
+        log("")
+        log(
+            "POSSIBLE SIZE PAIRS FROM $label"
+        )
+
+        log(
+            "--------------------------------"
+        )
+
+        if (
+            data.size < 2
+        ) {
+
+            log(
+                "Not enough values."
+            )
+
+            return
+        }
+
+        var found =
+            0
+
+        var i =
+            0
+
+        while (
+            i + 1 <
+            data.size
+        ) {
+
+            val width =
+                data[i]
+
+            val height =
+                data[i + 1]
+
+            if (
+                width > 100 &&
+                height > 100 &&
+                width < 50000 &&
+                height < 50000
+            ) {
+
+                found++
+
+                val mp =
+                    width.toDouble() *
+                        height.toDouble() /
+                        1_000_000.0
+
+                val marker =
+                    when {
+
+                        width == 16320 &&
+                            height == 12288 ->
+                            "  <<< EXACT 200 MP TARGET"
+
+                        width == 12288 &&
+                            height == 16320 ->
+                            "  <<< EXACT 200 MP ROTATED"
+
+                        mp >= 150.0 ->
+                            "  <<< 150+ MP"
+
+                        mp >= 40.0 ->
+                            "  <<< 40+ MP"
+
+                        else ->
+                            ""
+                    }
+
+                log(
+                    "$i/${i + 1}: " +
+                        "$width x $height = " +
+                        String.format(
+                            Locale.US,
+                            "%.2f MP",
+                            mp
+                        ) +
+                        marker
+                )
+            }
+
+            i +=
+                2
+        }
+
+        if (
+            found == 0
+        ) {
+
+            log(
+                "No plausible sequential width/height pairs."
             )
         }
 
-        return anyLarge
-    }
+        /*
+         * Also scan every adjacent pair because the array
+         * may contain headers/flags between size entries.
+         */
 
-    private fun pixels(
-        size: Size
-    ): Long {
+        log("")
+        log(
+            "ADJACENT-PAIR SEARCH:"
+        )
 
-        return size.width.toLong() *
-            size.height.toLong()
-    }
+        var adjacentFound =
+            0
 
-    private fun megapixels(
-        width: Int,
-        height: Int
-    ): Double {
+        for (
+            index in
+            0 until
+                data.size - 1
+        ) {
 
-        return width.toDouble() *
-            height.toDouble() /
-            1_000_000.0
-    }
+            val width =
+                data[index]
 
-    private fun facingName(
-        value: Int?
-    ): String {
+            val height =
+                data[index + 1]
 
-        return when (value) {
+            if (
+                width >= 500 &&
+                height >= 500 &&
+                width <= 50000 &&
+                height <= 50000
+            ) {
 
-            CameraCharacteristics
-                .LENS_FACING_FRONT ->
-                "$value = FRONT"
+                val mp =
+                    width.toDouble() *
+                        height.toDouble() /
+                        1_000_000.0
 
-            CameraCharacteristics
-                .LENS_FACING_BACK ->
-                "$value = BACK"
+                if (
+                    mp >= 20.0
+                ) {
 
-            CameraCharacteristics
-                .LENS_FACING_EXTERNAL ->
-                "$value = EXTERNAL"
+                    adjacentFound++
 
-            null ->
-                "NOT EXPOSED"
+                    val marker =
+                        when {
 
-            else ->
-                "$value = UNKNOWN"
+                            width == 16320 &&
+                                height == 12288 ->
+                                " <<< EXACT TARGET"
+
+                            mp >= 150.0 ->
+                                " <<< 150+ MP"
+
+                            mp >= 40.0 ->
+                                " <<< 40+ MP"
+
+                            else ->
+                                ""
+                        }
+
+                    log(
+                        "[$index,${
+                            index + 1
+                        }] $width x $height = " +
+                            String.format(
+                                Locale.US,
+                                "%.2f MP",
+                                mp
+                            ) +
+                            marker
+                    )
+                }
+            }
+        }
+
+        if (
+            adjacentFound == 0
+        ) {
+
+            log(
+                "No >=20 MP adjacent pairs found."
+            )
         }
     }
 
-    private fun hardwareLevelName(
-        value: Int?
-    ): String {
+    // =========================================================
+    // SEARCH VISIBLE CHARACTERISTIC NAMES
+    // =========================================================
 
-        return when (value) {
-
+    private fun searchCharacteristicNames(
+        chars:
             CameraCharacteristics
-                .INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY ->
-                "$value = LEGACY"
+    ) {
 
-            CameraCharacteristics
-                .INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED ->
-                "$value = LIMITED"
+        log("")
+        log("==============================")
+        log("VISIBLE RELATED KEY NAMES")
+        log("==============================")
 
-            CameraCharacteristics
-                .INFO_SUPPORTED_HARDWARE_LEVEL_FULL ->
-                "$value = FULL"
+        val terms =
+            listOf(
+                "vivo",
+                "sensor",
+                "remosaic",
+                "actualsize",
+                "size",
+                "upscale"
+            )
 
-            CameraCharacteristics
-                .INFO_SUPPORTED_HARDWARE_LEVEL_3 ->
-                "$value = LEVEL_3"
+        var count =
+            0
 
-            CameraCharacteristics
-                .INFO_SUPPORTED_HARDWARE_LEVEL_EXTERNAL ->
-                "$value = EXTERNAL"
+        for (
+            key in
+            chars.keys
+        ) {
 
-            null ->
-                "NOT EXPOSED"
+            val lower =
+                key.name.lowercase(
+                    Locale.US
+                )
 
-            else ->
-                "$value = UNKNOWN"
+            if (
+                terms.any {
+                    lower.contains(it)
+                }
+            ) {
+
+                count++
+
+                log(
+                    key.name
+                )
+            }
         }
+
+        log(
+            "Visible related key count: $count"
+        )
     }
 
-    private fun formatName(
-        format: Int
-    ): String {
+    // =========================================================
+    // HELPERS
+    // =========================================================
 
-        return when (format) {
+    private fun logSize(
+        width:
+            Int,
+        height:
+            Int
+    ) {
 
-            ImageFormat.RAW_SENSOR ->
-                "RAW_SENSOR"
+        val mp =
+            width.toDouble() *
+                height.toDouble() /
+                1_000_000.0
 
-            ImageFormat.RAW10 ->
-                "RAW10"
+        log(
+            "$width x $height"
+        )
 
-            ImageFormat.RAW12 ->
-                "RAW12"
-
-            ImageFormat.RAW_PRIVATE ->
-                "RAW_PRIVATE"
-
-            ImageFormat.JPEG ->
-                "JPEG"
-
-            ImageFormat.YUV_420_888 ->
-                "YUV_420_888"
-
-            ImageFormat.PRIVATE ->
-                "PRIVATE"
-
-            ImageFormat.HEIC ->
-                "HEIC"
-
-            else ->
-                "FORMAT $format"
-        }
+        log(
+            String.format(
+                Locale.US,
+                "%.2f MP",
+                mp
+            )
+        )
     }
 
     private fun log(
-        message: String
+        message:
+            String
     ) {
 
         runOnUiThread {
