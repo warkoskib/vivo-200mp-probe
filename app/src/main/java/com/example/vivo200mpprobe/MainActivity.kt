@@ -7,11 +7,14 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.ImageFormat
 import android.hardware.camera2.*
+import android.hardware.camera2.params.InputConfiguration
 import android.hardware.camera2.params.OutputConfiguration
 import android.hardware.camera2.params.SessionConfiguration
+import android.media.Image
 import android.media.ImageReader
-import android.os.Build
+import android.media.ImageWriter
 import android.os.Bundle
+import android.os.Environment
 import android.os.Handler
 import android.os.HandlerThread
 import android.widget.Button
@@ -21,41 +24,64 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import java.io.File
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.Executor
 
 class MainActivity : AppCompatActivity() {
 
     companion object {
+
         private const val CAMERA_ID = "3"
+
         private const val WIDTH = 4080
         private const val HEIGHT = 3072
+
         private const val CAMERA_PERMISSION_REQUEST = 1001
 
-        private const val CASE_CONTROL = 0
-        private const val CASE_PRERELEASE = 1
-        private const val CASE_PROPRIETARY = 2
-        private const val CASE_ECHO = 3
-        private const val CASE_REPROCESS = 4
-        private const val CASE_IMAGEREADER_ID = 5
+        private const val CASE_A = 0
+        private const val CASE_B = 1
+        private const val CASE_C = 2
+        private const val CASE_D = 3
     }
 
     private lateinit var cameraManager: CameraManager
+
     private lateinit var cameraThread: HandlerThread
     private lateinit var cameraHandler: Handler
 
-    private lateinit var output: TextView
-    private lateinit var runButton: Button
-
     private var cameraDevice: CameraDevice? = null
-    private var captureSession: CameraCaptureSession? = null
-    private var rawReader: ImageReader? = null
+    private var session: CameraCaptureSession? = null
 
-    private var currentCase = 0
-    private var stoppedByCameraError = false
+    private var sourceReader: ImageReader? = null
+    private var jpegReader: ImageReader? = null
+    private var imageWriter: ImageWriter? = null
+
+    private var pendingSourceImage: Image? = null
+    private var pendingSourceResult: TotalCaptureResult? = null
+
+    private var activeCase = CASE_A
+    private var reprocessStarted = false
+
+    private lateinit var output: TextView
+
+    private lateinit var caseAButton: Button
+    private lateinit var caseBButton: Button
+    private lateinit var caseCButton: Button
+    private lateinit var caseDButton: Button
 
     // =========================================================
-    // CONFIRMED SW RAW16 SESSION KEYS
+    // VIVO / MTK SESSION KEYS
     // =========================================================
+
+    private val reprocessModeKey =
+        CaptureRequest.Key(
+            "vivo.control.reprocessMode",
+            Int::class.javaObjectType
+        )
 
     private val ultraHighResolutionKey =
         CaptureRequest.Key(
@@ -124,7 +150,7 @@ class MainActivity : AppCompatActivity() {
         )
 
     // =========================================================
-    // CONFIRMED CAPTURE KEYS
+    // CAPTURE / REPROCESS KEYS
     // =========================================================
 
     private val real200mpKey =
@@ -193,40 +219,6 @@ class MainActivity : AppCompatActivity() {
             Int::class.javaObjectType
         )
 
-    // =========================================================
-    // BACKGROUND / REPROCESS KEYS TO ISOLATE
-    // =========================================================
-
-    private val prereleaseKey =
-        CaptureRequest.Key(
-            "com.mediatek.bgservicefeature.prerelease",
-            Int::class.javaObjectType
-        )
-
-    private val proprietaryRequestKey =
-        CaptureRequest.Key(
-            "com.mediatek.configure.setting.proprietaryRequest",
-            Int::class.javaObjectType
-        )
-
-    private val echoModeKey =
-        CaptureRequest.Key(
-            "vivo.control.echo.mode",
-            Int::class.javaObjectType
-        )
-
-    private val reprocessModeKey =
-        CaptureRequest.Key(
-            "vivo.control.reprocessMode",
-            Int::class.javaObjectType
-        )
-
-    private val imageReaderIdKey =
-        CaptureRequest.Key(
-            "com.mediatek.bgservicefeature.imagereaderid",
-            Int::class.javaObjectType
-        )
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -236,22 +228,21 @@ class MainActivity : AppCompatActivity() {
         cameraManager =
             getSystemService(CAMERA_SERVICE) as CameraManager
 
-        log("VIVO BACKGROUND KEY ISOLATION PROBE")
-        log("===================================")
+        log("VIVO REAL REPROCESS SESSION PROBE")
+        log("=================================")
         log("")
         log("Camera ID: $CAMERA_ID")
-        log("RAW output: $WIDTH x $HEIGHT")
         log("")
-        log("Cases:")
-        log("0 = SW RAW16 control")
-        log("1 = + prerelease")
-        log("2 = + proprietaryRequest")
-        log("3 = + echo.mode")
-        log("4 = + reprocessMode")
-        log("5 = + imagereaderid = 0")
+        log("INPUT:")
+        log("$WIDTH x $HEIGHT YUV_420_888")
         log("")
-        log("The matrix stops immediately")
-        log("if CAMERA ERROR 4 occurs.")
+        log("OUTPUT:")
+        log("$WIDTH x $HEIGHT JPEG")
+        log("")
+        log("A = real reprocess / reprocessMode 0")
+        log("B = real reprocess / reprocessMode 1")
+        log("C = B + SW RAW16 controls")
+        log("D = C + real200mp switch")
         log("")
 
         if (
@@ -273,45 +264,61 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // =========================================================
+    // UI
+    // =========================================================
+
     private fun buildUi() {
 
-        val root =
-            LinearLayout(this)
+        val root = LinearLayout(this)
 
         root.orientation =
             LinearLayout.VERTICAL
 
         root.setPadding(
             20,
-            30,
+            25,
             20,
-            30
+            25
         )
 
-        runButton =
-            Button(this)
+        caseAButton =
+            makeButton(
+                "CASE A - REPROCESS CONTROL"
+            ) {
+                startCase(CASE_A)
+            }
 
-        runButton.text =
-            "RUN ISOLATION MATRIX"
+        root.addView(caseAButton)
 
-        runButton.isEnabled =
-            false
+        caseBButton =
+            makeButton(
+                "CASE B - REPROCESSMODE = 1"
+            ) {
+                startCase(CASE_B)
+            }
 
-        runButton.setOnClickListener {
+        root.addView(caseBButton)
 
-            currentCase =
-                CASE_CONTROL
+        caseCButton =
+            makeButton(
+                "CASE C - SW RAW16 REPROCESS"
+            ) {
+                startCase(CASE_C)
+            }
 
-            stoppedByCameraError =
-                false
+        root.addView(caseCButton)
 
-            runButton.isEnabled =
-                false
+        caseDButton =
+            makeButton(
+                "CASE D - SW RAW16 + REAL 200MP"
+            ) {
+                startCase(CASE_D)
+            }
 
-            startCurrentCase()
-        }
+        root.addView(caseDButton)
 
-        root.addView(runButton)
+        setCaseButtons(false)
 
         val copyButton =
             Button(this)
@@ -328,7 +335,7 @@ class MainActivity : AppCompatActivity() {
 
             clipboard.setPrimaryClip(
                 ClipData.newPlainText(
-                    "Vivo Background Isolation Probe",
+                    "Vivo Real Reprocess Probe",
                     output.text.toString()
                 )
             )
@@ -346,7 +353,7 @@ class MainActivity : AppCompatActivity() {
             Button(this)
 
         clearButton.text =
-            "CLEAR"
+            "CLEAR OUTPUT"
 
         clearButton.setOnClickListener {
             output.text = ""
@@ -363,9 +370,7 @@ class MainActivity : AppCompatActivity() {
         output.textSize =
             13f
 
-        output.setTextIsSelectable(
-            true
-        )
+        output.setTextIsSelectable(true)
 
         output.setPadding(
             0,
@@ -388,8 +393,23 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
     }
 
+    private fun makeButton(
+        text: String,
+        action: () -> Unit
+    ): Button {
+
+        return Button(this).apply {
+
+            this.text = text
+
+            setOnClickListener {
+                action()
+            }
+        }
+    }
+
     // =========================================================
-    // CAMERA OPEN
+    // CAMERA
     // =========================================================
 
     private fun openCamera() {
@@ -414,15 +434,13 @@ class MainActivity : AppCompatActivity() {
                     camera: CameraDevice
                 ) {
 
-                    cameraDevice =
-                        camera
+                    cameraDevice = camera
 
                     log("Camera 3 opened.")
+                    log("")
+                    log("Choose a test case.")
 
-                    runOnUiThread {
-                        runButton.isEnabled =
-                            true
-                    }
+                    setCaseButtons(true)
                 }
 
                 override fun onDisconnected(
@@ -434,8 +452,9 @@ class MainActivity : AppCompatActivity() {
 
                     camera.close()
 
-                    cameraDevice =
-                        null
+                    cameraDevice = null
+
+                    setCaseButtons(false)
                 }
 
                 override fun onError(
@@ -448,38 +467,18 @@ class MainActivity : AppCompatActivity() {
                     log("CAMERA ERROR = $error")
                     log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
-                    log(
-                        "Failure occurred during:"
-                    )
-
-                    log(
-                        caseName(currentCase)
-                    )
-
                     if (error == CameraDevice.StateCallback.ERROR_CAMERA_DEVICE) {
 
-                        log("")
                         log(
                             "ERROR 4 = ERROR_CAMERA_DEVICE"
                         )
-
-                        log(
-                            "Isolation matrix STOPPED."
-                        )
-
-                        stoppedByCameraError =
-                            true
                     }
 
                     camera.close()
 
-                    cameraDevice =
-                        null
+                    cameraDevice = null
 
-                    runOnUiThread {
-                        runButton.isEnabled =
-                            true
-                    }
+                    setCaseButtons(false)
                 }
             },
 
@@ -488,232 +487,370 @@ class MainActivity : AppCompatActivity() {
     }
 
     // =========================================================
-    // TEST CASE
+    // START CASE
     // =========================================================
 
-    private fun startCurrentCase() {
+    private fun startCase(
+        testCase: Int
+    ) {
 
         val camera =
-            cameraDevice
+            cameraDevice ?: return
 
-        if (camera == null) {
+        activeCase = testCase
 
-            log(
-                "Camera is not currently open."
+        setCaseButtons(false)
+
+        cleanupSession()
+
+        pendingSourceImage = null
+        pendingSourceResult = null
+        reprocessStarted = false
+
+        log("")
+        log("")
+        log("################################")
+        log(caseName(testCase))
+        log("################################")
+
+        // -----------------------------------------------------
+        // SOURCE YUV READER
+        // -----------------------------------------------------
+
+        sourceReader =
+            ImageReader.newInstance(
+                WIDTH,
+                HEIGHT,
+                ImageFormat.YUV_420_888,
+                3
             )
 
-            runOnUiThread {
-                runButton.isEnabled =
-                    true
+        sourceReader!!
+            .setOnImageAvailableListener(
+                { reader ->
+                    onSourceImage(reader)
+                },
+                cameraHandler
+            )
+
+        // -----------------------------------------------------
+        // JPEG OUTPUT READER
+        // -----------------------------------------------------
+
+        jpegReader =
+            ImageReader.newInstance(
+                WIDTH,
+                HEIGHT,
+                ImageFormat.JPEG,
+                3
+            )
+
+        jpegReader!!
+            .setOnImageAvailableListener(
+                { reader ->
+                    onJpegImage(reader)
+                },
+                cameraHandler
+            )
+
+        val sourceSurface =
+            sourceReader!!.surface
+
+        val jpegSurface =
+            jpegReader!!.surface
+
+        val outputs =
+            listOf(
+                OutputConfiguration(sourceSurface),
+                OutputConfiguration(jpegSurface)
+            )
+
+        val executor =
+            Executor { runnable ->
+                cameraHandler.post(runnable)
             }
-
-            return
-        }
-
-        closeSessionOnly()
-
-        log("")
-        log("")
-        log("################################")
-        log("CASE ${currentCase + 1}/6")
-        log(caseName(currentCase))
-        log("################################")
-
-        try {
-
-            rawReader =
-                ImageReader.newInstance(
-                    WIDTH,
-                    HEIGHT,
-                    ImageFormat.RAW_SENSOR,
-                    2
-                )
-
-            rawReader!!
-                .setOnImageAvailableListener(
-                    { reader ->
-
-                        val image =
-                            try {
-                                reader.acquireNextImage()
-                            } catch (_: Throwable) {
-                                null
-                            }
-
-                        if (image != null) {
-
-                            log("")
-                            log("IMAGE RECEIVED")
-
-                            log(
-                                "${image.width} x ${image.height}"
-                            )
-
-                            log(
-                                "Format = ${image.format}"
-                            )
-
-                            if (image.planes.isNotEmpty()) {
-
-                                log(
-                                    "Bytes = ${
-                                        image.planes[0]
-                                            .buffer
-                                            .remaining()
-                                    }"
-                                )
-                            }
-
-                            image.close()
-                        }
-                    },
-
-                    cameraHandler
-                )
-
-        } catch (e: Throwable) {
-
-            log(
-                "ImageReader error: $e"
-            )
-
-            return
-        }
-
-        val surface =
-            rawReader!!.surface
 
         val callback =
             object :
                 CameraCaptureSession.StateCallback() {
 
                 override fun onConfigured(
-                    session:
+                    configuredSession:
                         CameraCaptureSession
                 ) {
 
-                    captureSession =
-                        session
+                    session =
+                        configuredSession
+
+                    log("")
+                    log(
+                        "REPROCESS SESSION CONFIGURED"
+                    )
 
                     log(
-                        "SESSION RESULT: CONFIGURED"
+                        "session.isReprocessable = " +
+                            configuredSession.isReprocessable
                     )
 
-                    performCapture(
-                        session,
-                        currentCase
-                    )
+                    val inputSurface =
+                        configuredSession.inputSurface
+
+                    if (inputSurface == null) {
+
+                        log("")
+                        log(
+                            "ERROR: inputSurface = null"
+                        )
+
+                        setCaseButtons(true)
+
+                        return
+                    }
+
+                    try {
+
+                        imageWriter =
+                            ImageWriter.newInstance(
+                                inputSurface,
+                                3
+                            )
+
+                        log(
+                            "ImageWriter created."
+                        )
+
+                    } catch (e: Throwable) {
+
+                        log(
+                            "ImageWriter creation FAILED"
+                        )
+
+                        log(
+                            e.javaClass.simpleName +
+                                ": " +
+                                (e.message ?: "")
+                        )
+
+                        setCaseButtons(true)
+
+                        return
+                    }
+
+                    captureSourceYuv()
                 }
 
                 override fun onConfigureFailed(
-                    session:
+                    configuredSession:
                         CameraCaptureSession
                 ) {
 
+                    log("")
                     log(
-                        "SESSION RESULT: FAILED"
+                        "REPROCESS SESSION CONFIGURATION FAILED"
                     )
 
-                    advanceToNextCase()
+                    setCaseButtons(true)
                 }
             }
 
         try {
 
-            if (
-                Build.VERSION.SDK_INT >=
-                Build.VERSION_CODES.P
-            ) {
-
-                val config =
-                    SessionConfiguration(
-                        SessionConfiguration.SESSION_REGULAR,
-                        listOf(
-                            OutputConfiguration(
-                                surface
-                            )
-                        ),
-                        Executor { runnable ->
-                            cameraHandler.post(
-                                runnable
-                            )
-                        },
-                        callback
-                    )
-
-                val sessionBuilder =
-                    camera.createCaptureRequest(
-                        CameraDevice.TEMPLATE_STILL_CAPTURE
-                    )
-
-                sessionBuilder.addTarget(
-                    surface
+            val config =
+                SessionConfiguration(
+                    SessionConfiguration.SESSION_REGULAR,
+                    outputs,
+                    executor,
+                    callback
                 )
 
-                log("")
-                log("SESSION PARAMETERS")
-                log("------------------")
+            config.setInputConfiguration(
+                InputConfiguration(
+                    WIDTH,
+                    HEIGHT,
+                    ImageFormat.YUV_420_888
+                )
+            )
 
-                applyBaseSwRaw16(
-                    sessionBuilder
+            // =================================================
+            // SESSION PARAMETERS
+            // =================================================
+
+            val sessionBuilder =
+                camera.createCaptureRequest(
+                    CameraDevice.TEMPLATE_STILL_CAPTURE
                 )
 
-                applyIsolationKey(
-                    sessionBuilder,
-                    currentCase
-                )
+            sessionBuilder.addTarget(
+                sourceSurface
+            )
 
-                config.setSessionParameters(
-                    sessionBuilder.build()
-                )
+            log("")
+            log("SESSION PARAMETERS")
+            log("------------------")
 
-                camera.createCaptureSession(
-                    config
-                )
+            applySessionParameters(
+                sessionBuilder,
+                testCase
+            )
 
-            } else {
+            config.setSessionParameters(
+                sessionBuilder.build()
+            )
 
-                @Suppress("DEPRECATION")
-                camera.createCaptureSession(
-                    listOf(surface),
-                    callback,
-                    cameraHandler
-                )
-            }
+            log("")
+            log(
+                "Creating REAL YUV reprocessable session..."
+            )
+
+            camera.createCaptureSession(
+                config
+            )
 
         } catch (e: Throwable) {
 
             log("")
+            log("SESSION CREATION EXCEPTION")
+
             log(
-                "SESSION EXCEPTION"
+                e.javaClass.name
             )
 
             log(
-                e.javaClass.simpleName +
-                    ": " +
-                    (e.message ?: "")
+                e.message ?: ""
             )
 
-            advanceToNextCase()
+            setCaseButtons(true)
         }
     }
 
     // =========================================================
-    // CAPTURE
+    // SESSION PARAMETERS
     // =========================================================
 
-    private fun performCapture(
-        session:
-            CameraCaptureSession,
-        caseIndex:
+    private fun applySessionParameters(
+        builder:
+            CaptureRequest.Builder,
+        testCase:
             Int
     ) {
+
+        setInt(
+            builder,
+            reprocessModeKey,
+            if (testCase == CASE_A) 0 else 1,
+            "reprocessMode"
+        )
+
+        if (
+            testCase == CASE_C ||
+            testCase == CASE_D
+        ) {
+
+            setInt(
+                builder,
+                ultraHighResolutionKey,
+                1,
+                "ultra_highresolution"
+            )
+
+            setByte(
+                builder,
+                portraitHighResolutionKey,
+                1,
+                "portrait_high_resolution"
+            )
+
+            setInt(
+                builder,
+                forceSensorModeKey,
+                0,
+                "forceSensorMode"
+            )
+
+            setInt(
+                builder,
+                engineerRemosaicModeKey,
+                1,
+                "EngineerRemosaicMode"
+            )
+
+            setInt(
+                builder,
+                advanceFullsizeKey,
+                0,
+                "advance_fullsize"
+            )
+
+            setInt(
+                builder,
+                cameraScenarioKey,
+                3,
+                "cameraScenario"
+            )
+
+            setInt(
+                builder,
+                sensorScenarioKey,
+                3,
+                "sensorScenario"
+            )
+
+            setInt(
+                builder,
+                sensorScenarioCustomHintKey,
+                1,
+                "sensorScenarioCustomHint"
+            )
+
+            setInt(
+                builder,
+                proRawKey,
+                1,
+                "is_ProRaw_on"
+            )
+
+            setIntArray(
+                builder,
+                streamsUsageKey,
+                intArrayOf(
+                    2,
+                    1,
+                    0
+                ),
+                "streamsUsage"
+            )
+
+            setIntArray(
+                builder,
+                vcfStreamTypeKey,
+                intArrayOf(
+                    0,
+                    1
+                ),
+                "vcfStreamType"
+            )
+        }
+    }
+
+    // =========================================================
+    // SOURCE CAPTURE
+    // =========================================================
+
+    private fun captureSourceYuv() {
 
         val camera =
             cameraDevice ?: return
 
+        val currentSession =
+            session ?: return
+
         val reader =
-            rawReader ?: return
+            sourceReader ?: return
+
+        log("")
+        log("==============================")
+        log("CAPTURING SOURCE YUV")
+        log("==============================")
 
         try {
 
@@ -726,97 +863,17 @@ class MainActivity : AppCompatActivity() {
                 reader.surface
             )
 
-            applyBaseSwRaw16(
-                builder
+            builder.set(
+                CaptureRequest.CONTROL_MODE,
+                CameraMetadata.CONTROL_MODE_AUTO
             )
 
-            applyIsolationKey(
-                builder,
-                caseIndex
+            builder.set(
+                CaptureRequest.CONTROL_AE_MODE,
+                CaptureRequest.CONTROL_AE_MODE_ON
             )
 
-            log("")
-            log("CAPTURE PARAMETERS")
-            log("------------------")
-
-            setInt(
-                builder,
-                real200mpKey,
-                1,
-                "real200mp_switch_on"
-            )
-
-            setInt(
-                builder,
-                sensorModeKey,
-                0,
-                "sensorMode"
-            )
-
-            setInt(
-                builder,
-                previewSensorModeKey,
-                0,
-                "preview.sensorMode"
-            )
-
-            setInt(
-                builder,
-                niceCaptureSensorModeKey,
-                0,
-                "niceCaptureSensorMode"
-            )
-
-            setInt(
-                builder,
-                rawCaptureTypeKey,
-                32,
-                "raw_capture_type"
-            )
-
-            setInt(
-                builder,
-                highResolutionDngTypeKey,
-                1,
-                "highResolutionDngType"
-            )
-
-            setInt(
-                builder,
-                nativeModeKey,
-                1,
-                "isNativeMode"
-            )
-
-            setInt(
-                builder,
-                seamlessRemosaicKey,
-                1,
-                "seamless.remosaic.enable"
-            )
-
-            setInt(
-                builder,
-                remosaicCapabilityKey,
-                1,
-                "remosaic.capability"
-            )
-
-            setInt(
-                builder,
-                isCaptureKey,
-                1,
-                "isCapture"
-            )
-
-            setInt(
-                builder,
-                isSnapshotKey,
-                1,
-                "is_snapshot"
-            )
-
-            session.capture(
+            currentSession.capture(
                 builder.build(),
 
                 object :
@@ -833,8 +890,17 @@ class MainActivity : AppCompatActivity() {
                             Long
                     ) {
 
+                        log("")
                         log(
-                            "CAPTURE STARTED"
+                            "SOURCE CAPTURE STARTED"
+                        )
+
+                        log(
+                            "Frame = $frameNumber"
+                        )
+
+                        log(
+                            "Timestamp = $timestamp"
                         )
                     }
 
@@ -847,15 +913,371 @@ class MainActivity : AppCompatActivity() {
                             TotalCaptureResult
                     ) {
 
+                        log("")
                         log(
-                            "CAPTURE RESULT: COMPLETED"
+                            "SOURCE CAPTURE RESULT RECEIVED"
                         )
+
+                        log(
+                            "Frame = ${result.frameNumber}"
+                        )
+
+                        val timestamp =
+                            result.get(
+                                CaptureResult.SENSOR_TIMESTAMP
+                            )
+
+                        log(
+                            "Sensor timestamp = $timestamp"
+                        )
+
+                        pendingSourceResult =
+                            result
+
+                        attemptReprocess()
+                    }
+
+                    override fun onCaptureFailed(
+                        session:
+                            CameraCaptureSession,
+                        request:
+                            CaptureRequest,
+                        failure:
+                            CaptureFailure
+                    ) {
+
+                        log("")
+                        log(
+                            "SOURCE CAPTURE FAILED"
+                        )
+
+                        log(
+                            "Reason = ${failure.reason}"
+                        )
+
+                        setCaseButtons(true)
+                    }
+                },
+
+                cameraHandler
+            )
+
+        } catch (e: Throwable) {
+
+            log("")
+            log(
+                "SOURCE CAPTURE EXCEPTION"
+            )
+
+            log(
+                e.javaClass.name
+            )
+
+            log(
+                e.message ?: ""
+            )
+
+            setCaseButtons(true)
+        }
+    }
+
+    // =========================================================
+    // SOURCE IMAGE CALLBACK
+    // =========================================================
+
+    private fun onSourceImage(
+        reader:
+            ImageReader
+    ) {
+
+        val image =
+            try {
+                reader.acquireNextImage()
+            } catch (e: Throwable) {
+                null
+            }
+
+        if (image == null) {
+            return
+        }
+
+        // If something unexpected sends another source frame,
+        // close it instead of leaking it.
+        if (pendingSourceImage != null) {
+
+            try {
+                image.close()
+            } catch (_: Throwable) {
+            }
+
+            return
+        }
+
+        pendingSourceImage =
+            image
+
+        log("")
+        log(
+            "SOURCE YUV IMAGE RECEIVED"
+        )
+
+        log(
+            "Width = ${image.width}"
+        )
+
+        log(
+            "Height = ${image.height}"
+        )
+
+        log(
+            "Format = ${image.format}"
+        )
+
+        log(
+            "Timestamp = ${image.timestamp}"
+        )
+
+        log(
+            "Planes = ${image.planes.size}"
+        )
+
+        image.planes.forEachIndexed {
+                index,
+                plane ->
+
+            log(
+                "Plane $index: " +
+                    "bytes=${plane.buffer.remaining()} " +
+                    "rowStride=${plane.rowStride} " +
+                    "pixelStride=${plane.pixelStride}"
+            )
+        }
+
+        attemptReprocess()
+    }
+
+    // =========================================================
+    // WHEN IMAGE + RESULT ARE BOTH READY
+    // =========================================================
+
+    private fun attemptReprocess() {
+
+        if (reprocessStarted) {
+            return
+        }
+
+        val image =
+            pendingSourceImage ?: return
+
+        val result =
+            pendingSourceResult ?: return
+
+        val writer =
+            imageWriter ?: return
+
+        reprocessStarted =
+            true
+
+        log("")
+        log("==============================")
+        log("SOURCE PAIR READY")
+        log("==============================")
+
+        log(
+            "Image timestamp = ${image.timestamp}"
+        )
+
+        log(
+            "Result timestamp = " +
+                result.get(
+                    CaptureResult.SENSOR_TIMESTAMP
+                )
+        )
+
+        try {
+
+            log("")
+            log(
+                "Queueing YUV image into ImageWriter..."
+            )
+
+            writer.queueInputImage(
+                image
+            )
+
+            /*
+             * Ownership transfers to ImageWriter here.
+             * DO NOT close image ourselves afterward.
+             */
+
+            pendingSourceImage =
+                null
+
+            log(
+                "IMAGE QUEUED SUCCESSFULLY"
+            )
+
+        } catch (e: Throwable) {
+
+            log("")
+            log(
+                "queueInputImage FAILED"
+            )
+
+            log(
+                e.javaClass.name
+            )
+
+            log(
+                e.message ?: ""
+            )
+
+            try {
+                image.close()
+            } catch (_: Throwable) {
+            }
+
+            pendingSourceImage =
+                null
+
+            setCaseButtons(true)
+
+            return
+        }
+
+        performReprocess(
+            result
+        )
+    }
+
+    // =========================================================
+    // REAL REPROCESS REQUEST
+    // =========================================================
+
+    private fun performReprocess(
+        sourceResult:
+            TotalCaptureResult
+    ) {
+
+        val camera =
+            cameraDevice ?: return
+
+        val currentSession =
+            session ?: return
+
+        val outputReader =
+            jpegReader ?: return
+
+        log("")
+        log("==============================")
+        log("CREATE REPROCESS REQUEST")
+        log("==============================")
+
+        try {
+
+            val builder =
+                camera.createReprocessCaptureRequest(
+                    sourceResult
+                )
+
+            log(
+                "createReprocessCaptureRequest(): SUCCESS"
+            )
+
+            builder.addTarget(
+                outputReader.surface
+            )
+
+            log("")
+            log("REPROCESS PARAMETERS")
+            log("--------------------")
+
+            setInt(
+                builder,
+                reprocessModeKey,
+                if (activeCase == CASE_A) 0 else 1,
+                "reprocessMode"
+            )
+
+            if (
+                activeCase == CASE_C ||
+                activeCase == CASE_D
+            ) {
+
+                applySwRaw16Controls(
+                    builder,
+                    activeCase == CASE_D
+                )
+            }
+
+            log("")
+            log(
+                "Submitting reprocess request..."
+            )
+
+            currentSession.capture(
+                builder.build(),
+
+                object :
+                    CameraCaptureSession.CaptureCallback() {
+
+                    override fun onCaptureStarted(
+                        session:
+                            CameraCaptureSession,
+                        request:
+                            CaptureRequest,
+                        timestamp:
+                            Long,
+                        frameNumber:
+                            Long
+                    ) {
+
+                        log("")
+                        log(
+                            "REPROCESS STARTED"
+                        )
+
+                        log(
+                            "Frame = $frameNumber"
+                        )
+
+                        log(
+                            "Timestamp = $timestamp"
+                        )
+                    }
+
+                    override fun onCaptureCompleted(
+                        session:
+                            CameraCaptureSession,
+                        request:
+                            CaptureRequest,
+                        result:
+                            TotalCaptureResult
+                    ) {
+
+                        log("")
+                        log(
+                            "REPROCESS RESULT COMPLETED"
+                        )
+
+                        log(
+                            "Frame = ${result.frameNumber}"
+                        )
+
+                        dumpVendorResults(
+                            result
+                        )
+
+                        /*
+                         * JPEG callback may occur before or
+                         * after this result.
+                         */
 
                         cameraHandler.postDelayed(
                             {
-                                advanceToNextCase()
+                                setCaseButtons(true)
                             },
-                            1000
+                            1500
                         )
                     }
 
@@ -868,20 +1290,20 @@ class MainActivity : AppCompatActivity() {
                             CaptureFailure
                     ) {
 
+                        log("")
                         log(
-                            "CAPTURE RESULT: FAILED"
+                            "REPROCESS CAPTURE FAILED"
                         )
 
                         log(
                             "Reason = ${failure.reason}"
                         )
 
-                        cameraHandler.postDelayed(
-                            {
-                                advanceToNextCase()
-                            },
-                            1000
+                        log(
+                            "Frame = ${failure.frameNumber}"
                         )
+
+                        setCaseButtons(true)
                     }
                 },
 
@@ -892,26 +1314,30 @@ class MainActivity : AppCompatActivity() {
 
             log("")
             log(
-                "CAPTURE EXCEPTION"
+                "REPROCESS EXCEPTION"
             )
 
             log(
-                e.javaClass.simpleName +
-                    ": " +
-                    (e.message ?: "")
+                e.javaClass.name
             )
 
-            advanceToNextCase()
+            log(
+                e.message ?: ""
+            )
+
+            setCaseButtons(true)
         }
     }
 
     // =========================================================
-    // BASE SW RAW16 CONFIG
+    // SW RAW16 / 200 MP CONTROLS
     // =========================================================
 
-    private fun applyBaseSwRaw16(
+    private fun applySwRaw16Controls(
         builder:
-            CaptureRequest.Builder
+            CaptureRequest.Builder,
+        enableReal200mp:
+            Boolean
     ) {
 
         setInt(
@@ -940,13 +1366,6 @@ class MainActivity : AppCompatActivity() {
             engineerRemosaicModeKey,
             1,
             "EngineerRemosaicMode"
-        )
-
-        setInt(
-            builder,
-            advanceFullsizeKey,
-            0,
-            "advance_fullsize"
         )
 
         setInt(
@@ -997,156 +1416,357 @@ class MainActivity : AppCompatActivity() {
             ),
             "vcfStreamType"
         )
-    }
 
-    // =========================================================
-    // ONE EXTRA KEY PER TEST
-    // =========================================================
+        setInt(
+            builder,
+            real200mpKey,
+            if (enableReal200mp) 1 else 0,
+            "real200mp_switch_on"
+        )
 
-    private fun applyIsolationKey(
-        builder:
-            CaptureRequest.Builder,
-        testCase:
-            Int
-    ) {
+        setInt(
+            builder,
+            sensorModeKey,
+            0,
+            "sensorMode"
+        )
 
-        when (testCase) {
+        setInt(
+            builder,
+            previewSensorModeKey,
+            0,
+            "preview.sensorMode"
+        )
 
-            CASE_CONTROL -> {
+        setInt(
+            builder,
+            niceCaptureSensorModeKey,
+            0,
+            "niceCaptureSensorMode"
+        )
 
-                log(
-                    "EXTRA KEY: NONE"
-                )
-            }
+        setInt(
+            builder,
+            rawCaptureTypeKey,
+            32,
+            "raw_capture_type"
+        )
 
-            CASE_PRERELEASE -> {
+        setInt(
+            builder,
+            highResolutionDngTypeKey,
+            1,
+            "highResolutionDngType"
+        )
 
-                setInt(
-                    builder,
-                    prereleaseKey,
-                    1,
-                    "bgservice.prerelease"
-                )
-            }
+        setInt(
+            builder,
+            nativeModeKey,
+            1,
+            "isNativeMode"
+        )
 
-            CASE_PROPRIETARY -> {
+        setInt(
+            builder,
+            seamlessRemosaicKey,
+            1,
+            "seamless.remosaic.enable"
+        )
 
-                setInt(
-                    builder,
-                    proprietaryRequestKey,
-                    1,
-                    "proprietaryRequest"
-                )
-            }
+        setInt(
+            builder,
+            remosaicCapabilityKey,
+            1,
+            "remosaic.capability"
+        )
 
-            CASE_ECHO -> {
+        setInt(
+            builder,
+            isCaptureKey,
+            1,
+            "isCapture"
+        )
 
-                setInt(
-                    builder,
-                    echoModeKey,
-                    1,
-                    "echo.mode"
-                )
-            }
-
-            CASE_REPROCESS -> {
-
-                setInt(
-                    builder,
-                    reprocessModeKey,
-                    1,
-                    "reprocessMode"
-                )
-            }
-
-            CASE_IMAGEREADER_ID -> {
-
-                setInt(
-                    builder,
-                    imageReaderIdKey,
-                    0,
-                    "bgservice.imagereaderid"
-                )
-            }
-        }
-    }
-
-    // =========================================================
-    // NEXT CASE
-    // =========================================================
-
-    private fun advanceToNextCase() {
-
-        if (stoppedByCameraError) {
-            return
-        }
-
-        closeSessionOnly()
-
-        if (
-            currentCase >=
-            CASE_IMAGEREADER_ID
-        ) {
-
-            log("")
-            log("")
-            log("==============================")
-            log("ISOLATION MATRIX COMPLETE")
-            log("==============================")
-
-            log(
-                "No fatal camera error occurred."
-            )
-
-            runOnUiThread {
-                runButton.isEnabled =
-                    true
-            }
-
-            return
-        }
-
-        currentCase++
-
-        cameraHandler.postDelayed(
-            {
-                startCurrentCase()
-            },
-            750
+        setInt(
+            builder,
+            isSnapshotKey,
+            1,
+            "is_snapshot"
         )
     }
 
-    private fun caseName(
-        value: Int
+    // =========================================================
+    // JPEG OUTPUT
+    // =========================================================
+
+    private fun onJpegImage(
+        reader:
+            ImageReader
+    ) {
+
+        val image =
+            try {
+                reader.acquireNextImage()
+            } catch (_: Throwable) {
+                null
+            }
+
+        if (image == null) {
+            return
+        }
+
+        try {
+
+            val buffer =
+                image.planes[0].buffer
+
+            val bytes =
+                ByteArray(
+                    buffer.remaining()
+                )
+
+            buffer.get(
+                bytes
+            )
+
+            log("")
+            log("")
+            log("********************************")
+            log("JPEG RECEIVED")
+            log("********************************")
+
+            log(
+                "Width = ${image.width}"
+            )
+
+            log(
+                "Height = ${image.height}"
+            )
+
+            log(
+                "Format = ${image.format}"
+            )
+
+            log(
+                "Timestamp = ${image.timestamp}"
+            )
+
+            log(
+                "Bytes = ${bytes.size}"
+            )
+
+            saveJpeg(
+                bytes
+            )
+
+        } catch (e: Throwable) {
+
+            log("")
+            log(
+                "JPEG READ ERROR"
+            )
+
+            log(
+                e.toString()
+            )
+
+        } finally {
+
+            try {
+                image.close()
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    private fun saveJpeg(
+        bytes:
+            ByteArray
+    ) {
+
+        try {
+
+            val directory =
+                getExternalFilesDir(
+                    Environment.DIRECTORY_PICTURES
+                ) ?: return
+
+            directory.mkdirs()
+
+            val stamp =
+                SimpleDateFormat(
+                    "yyyyMMdd_HHmmss_SSS",
+                    Locale.US
+                ).format(
+                    Date()
+                )
+
+            val file =
+                File(
+                    directory,
+                    "REPROCESS_" +
+                        caseShortName(activeCase) +
+                        "_" +
+                        stamp +
+                        ".jpg"
+                )
+
+            FileOutputStream(
+                file
+            ).use {
+                it.write(bytes)
+            }
+
+            log("")
+            log(
+                "JPEG SAVED:"
+            )
+
+            log(
+                file.absolutePath
+            )
+
+            log(
+                String.format(
+                    Locale.US,
+                    "%.2f MB",
+                    file.length() /
+                        1024.0 /
+                        1024.0
+                )
+            )
+
+        } catch (e: Throwable) {
+
+            log(
+                "SAVE JPEG ERROR: $e"
+            )
+        }
+    }
+
+    // =========================================================
+    // RESULT DUMP
+    // =========================================================
+
+    private fun dumpVendorResults(
+        result:
+            TotalCaptureResult
+    ) {
+
+        log("")
+        log("==============================")
+        log("VIVO / VCF / MTK RESULTS")
+        log("==============================")
+
+        var count =
+            0
+
+        for (key in result.keys) {
+
+            val name =
+                key.name
+
+            val lower =
+                name.lowercase(
+                    Locale.US
+                )
+
+            if (
+                lower.startsWith("vivo.") ||
+                lower.startsWith("com.vivo.") ||
+                lower.startsWith("vcf.") ||
+                lower.startsWith("com.mediatek.")
+            ) {
+
+                val value =
+                    try {
+                        result.get(key)
+                    } catch (_: Throwable) {
+                        "<READ ERROR>"
+                    }
+
+                if (value != null) {
+
+                    count++
+
+                    log("")
+                    log(name)
+
+                    log(
+                        formatValue(
+                            value
+                        )
+                    )
+                }
+            }
+        }
+
+        log("")
+        log(
+            "Non-null OEM result keys: $count"
+        )
+    }
+
+    private fun formatValue(
+        value:
+            Any
     ): String {
 
         return when (value) {
 
-            CASE_CONTROL ->
-                "CONTROL - SW RAW16 ONLY"
+            is IntArray ->
+                limitArray(
+                    value.contentToString()
+                )
 
-            CASE_PRERELEASE ->
-                "+ bgservice.prerelease = 1"
+            is LongArray ->
+                limitArray(
+                    value.contentToString()
+                )
 
-            CASE_PROPRIETARY ->
-                "+ proprietaryRequest = 1"
+            is FloatArray ->
+                limitArray(
+                    value.contentToString()
+                )
 
-            CASE_ECHO ->
-                "+ echo.mode = 1"
+            is DoubleArray ->
+                limitArray(
+                    value.contentToString()
+                )
 
-            CASE_REPROCESS ->
-                "+ reprocessMode = 1"
+            is ByteArray ->
+                "ByteArray(${value.size})"
 
-            CASE_IMAGEREADER_ID ->
-                "+ bgservice.imagereaderid = 0"
+            is Array<*> ->
+                limitArray(
+                    value.contentDeepToString()
+                )
 
             else ->
-                "UNKNOWN"
+                value.toString()
+        }
+    }
+
+    private fun limitArray(
+        text:
+            String
+    ): String {
+
+        return if (
+            text.length > 1000
+        ) {
+
+            text.take(1000) +
+                "... [TRUNCATED]"
+
+        } else {
+
+            text
         }
     }
 
     // =========================================================
-    // SET HELPERS
+    // KEY SETTERS
     // =========================================================
 
     private fun setInt(
@@ -1174,13 +1794,8 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Throwable) {
 
             log(
-                "FAIL $name"
-            )
-
-            log(
-                e.javaClass.simpleName +
-                    ": " +
-                    (e.message ?: "")
+                "FAIL $name: " +
+                    e.javaClass.simpleName
             )
         }
     }
@@ -1210,7 +1825,8 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Throwable) {
 
             log(
-                "FAIL $name"
+                "FAIL $name: " +
+                    e.javaClass.simpleName
             )
         }
     }
@@ -1241,7 +1857,8 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Throwable) {
 
             log(
-                "FAIL $name"
+                "FAIL $name: " +
+                    e.javaClass.simpleName
             )
         }
     }
@@ -1250,22 +1867,51 @@ class MainActivity : AppCompatActivity() {
     // CLEANUP
     // =========================================================
 
-    private fun closeSessionOnly() {
+    private fun cleanupSession() {
 
         try {
-            captureSession?.close()
+
+            pendingSourceImage?.close()
+
         } catch (_: Throwable) {
         }
 
-        captureSession =
+        pendingSourceImage =
+            null
+
+        pendingSourceResult =
             null
 
         try {
-            rawReader?.close()
+            imageWriter?.close()
         } catch (_: Throwable) {
         }
 
-        rawReader =
+        imageWriter =
+            null
+
+        try {
+            session?.close()
+        } catch (_: Throwable) {
+        }
+
+        session =
+            null
+
+        try {
+            sourceReader?.close()
+        } catch (_: Throwable) {
+        }
+
+        sourceReader =
+            null
+
+        try {
+            jpegReader?.close()
+        } catch (_: Throwable) {
+        }
+
+        jpegReader =
             null
     }
 
@@ -1273,7 +1919,7 @@ class MainActivity : AppCompatActivity() {
 
         cameraThread =
             HandlerThread(
-                "VivoBackgroundIsolation"
+                "VivoRealReprocess"
             )
 
         cameraThread.start()
@@ -1284,19 +1930,76 @@ class MainActivity : AppCompatActivity() {
             )
     }
 
-    private fun log(
-        text: String
+    private fun setCaseButtons(
+        enabled:
+            Boolean
     ) {
 
         runOnUiThread {
 
-            output.append(
-                text
-            )
+            caseAButton.isEnabled =
+                enabled
 
-            output.append(
-                "\n"
-            )
+            caseBButton.isEnabled =
+                enabled
+
+            caseCButton.isEnabled =
+                enabled
+
+            caseDButton.isEnabled =
+                enabled
+        }
+    }
+
+    private fun caseName(
+        value:
+            Int
+    ): String {
+
+        return when (value) {
+
+            CASE_A ->
+                "CASE A - REAL REPROCESS / MODE 0"
+
+            CASE_B ->
+                "CASE B - REAL REPROCESS / MODE 1"
+
+            CASE_C ->
+                "CASE C - SW RAW16 REPROCESS"
+
+            CASE_D ->
+                "CASE D - SW RAW16 + REAL 200MP"
+
+            else ->
+                "UNKNOWN CASE"
+        }
+    }
+
+    private fun caseShortName(
+        value:
+            Int
+    ): String {
+
+        return when (value) {
+
+            CASE_A -> "A"
+            CASE_B -> "B"
+            CASE_C -> "C"
+            CASE_D -> "D"
+
+            else -> "X"
+        }
+    }
+
+    private fun log(
+        text:
+            String
+    ) {
+
+        runOnUiThread {
+
+            output.append(text)
+            output.append("\n")
         }
     }
 
@@ -1329,12 +2032,15 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
 
-        closeSessionOnly()
+        cleanupSession()
 
         try {
             cameraDevice?.close()
         } catch (_: Throwable) {
         }
+
+        cameraDevice =
+            null
 
         try {
             cameraThread.quitSafely()
