@@ -13,14 +13,36 @@ class MainActivity : AppCompatActivity() {
     private lateinit var output: TextView
     private lateinit var scroll: ScrollView
 
-    private val targetFile =
-        "/system/etc/public.libraries-mtk.txt"
+    private val roots = listOf(
+        "/vendor/lib64",
+        "/vendor/lib",
+        "/vendor/etc",
+        "/system/lib64",
+        "/system/lib",
+        "/system/etc",
+        "/odm/lib64",
+        "/odm/lib",
+        "/odm/etc"
+    )
+
+    private val terms = listOf(
+        "camera",
+        "cam_",
+        "cam.",
+        "sensor",
+        "remosaic",
+        "raw",
+        "jpeg",
+        "isp",
+        "imgsensor",
+        "mtkcam",
+        "vivo"
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         buildUi()
-        readFile()
     }
 
     private fun buildUi() {
@@ -32,11 +54,15 @@ class MainActivity : AppCompatActivity() {
 
         val button = Button(this)
 
-        button.text = "READ MEDIATEK LIBRARIES"
+        button.text = "SCAN CAMERA FILES"
 
         button.setOnClickListener {
+
             output.text = ""
-            readFile()
+
+            Thread {
+                runScan()
+            }.start()
         }
 
         root.addView(button)
@@ -45,7 +71,7 @@ class MainActivity : AppCompatActivity() {
 
         output = TextView(this)
 
-        output.textSize = 14f
+        output.textSize = 13f
         output.setPadding(0, 20, 0, 100)
 
         scroll.addView(output)
@@ -62,111 +88,96 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
     }
 
-    private fun readFile() {
+    private fun runScan() {
 
-        log("MEDIATEK PUBLIC LIBRARIES")
+        log("CAMERA FILE DISCOVERY")
         log("==============================")
         log("")
-        log(targetFile)
-        log("")
 
-        val file = File(targetFile)
+        var totalMatches = 0
 
-        log("Exists: ${file.exists()}")
-        log("Readable: ${file.canRead()}")
-        log("Size: ${if (file.exists()) file.length() else -1} bytes")
-
-        if (!file.exists()) {
-            log("")
-            log("FILE DOES NOT EXIST")
-            return
-        }
-
-        if (!file.canRead()) {
-            log("")
-            log("ACCESS DENIED")
-            return
-        }
-
-        try {
-
-            val lines = file.readLines()
+        for (rootPath in roots) {
 
             log("")
             log("==============================")
-            log("ALL MEDIATEK LIBRARIES")
+            log("SCANNING")
+            log(rootPath)
             log("==============================")
 
-            for ((index, line) in lines.withIndex()) {
+            val root = File(rootPath)
 
-                log("${index + 1}: $line")
+            log("Exists: ${root.exists()}")
+            log("Readable: ${root.canRead()}")
+
+            if (!root.exists() || !root.canRead()) {
+                log("SKIPPED")
+                continue
             }
 
-            log("")
-            log("==============================")
-            log("CAMERA / SENSOR / ISP MATCHES")
-            log("==============================")
+            try {
 
-            val terms = listOf(
-                "camera",
-                "cam",
-                "sensor",
-                "isp",
-                "jpeg",
-                "image",
-                "raw",
-                "remosaic",
-                "mtk",
-                "mediatek",
-                "3a",
-                "aaa",
-                "p1",
-                "p2"
-            )
+                val children = root.listFiles()
 
-            var matches = 0
+                if (children == null) {
 
-            for ((index, line) in lines.withIndex()) {
-
-                val lower = line.lowercase()
-
-                if (
-                    terms.any {
-                        lower.contains(it)
-                    }
-                ) {
-
-                    matches++
-
-                    log(
-                        "*** LINE ${index + 1}: $line"
-                    )
+                    log("Cannot list directory.")
+                    continue
                 }
+
+                log("Entries visible: ${children.size}")
+                log("")
+
+                for (file in children) {
+
+                    val name = file.name.lowercase()
+
+                    if (
+                        terms.any {
+                            name.contains(it)
+                        }
+                    ) {
+
+                        totalMatches++
+
+                        log("--------------------------------")
+                        log("MATCH #$totalMatches")
+                        log("Name: ${file.name}")
+                        log("Path: ${file.absolutePath}")
+
+                        log(
+                            "Type: ${
+                                if (file.isDirectory)
+                                    "DIRECTORY"
+                                else
+                                    "FILE"
+                            }"
+                        )
+
+                        log("Readable: ${file.canRead()}")
+
+                        if (file.isFile) {
+
+                            log(
+                                "Size: ${file.length()} bytes"
+                            )
+                        }
+                    }
+                }
+
+            } catch (e: Throwable) {
+
+                log("ERROR:")
+                log(e.javaClass.name)
+                log(e.message ?: "")
             }
-
-            log("")
-            log("==============================")
-            log("RESULT")
-            log("==============================")
-
-            log(
-                "Total libraries: ${lines.size}"
-            )
-
-            log(
-                "Interesting matches: $matches"
-            )
-
-        } catch (e: Throwable) {
-
-            log("")
-            log("==============================")
-            log("READ ERROR")
-            log("==============================")
-
-            log(e.javaClass.name)
-            log(e.message ?: "")
         }
+
+        log("")
+        log("")
+        log("==============================")
+        log("SCAN COMPLETE")
+        log("==============================")
+        log("Total matches: $totalMatches")
     }
 
     private fun log(message: String) {
@@ -175,13 +186,6 @@ class MainActivity : AppCompatActivity() {
 
             output.append(message)
             output.append("\n")
-
-            scroll.post {
-
-                scroll.fullScroll(
-                    ScrollView.FOCUS_DOWN
-                )
-            }
         }
     }
 }
