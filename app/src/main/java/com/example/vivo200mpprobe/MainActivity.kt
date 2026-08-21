@@ -5,17 +5,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
-import android.graphics.ImageFormat
 import android.hardware.camera2.*
-import android.hardware.camera2.params.OutputConfiguration
-import android.hardware.camera2.params.SessionConfiguration
-import android.media.Image
-import android.media.ImageReader
-import android.os.Build
 import android.os.Bundle
-import android.os.Environment
-import android.os.Handler
-import android.os.HandlerThread
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -23,292 +14,72 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
-import java.io.File
-import java.io.FileOutputStream
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.concurrent.Executor
+import java.lang.reflect.Field
+import java.lang.reflect.Method
+import java.lang.reflect.Modifier
 
 class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val CAMERA_ID = "3"
-
-        private const val WIDTH = 4080
-        private const val HEIGHT = 3072
-
         private const val CAMERA_PERMISSION_REQUEST = 1001
-
-        private const val WAIT_AFTER_CAPTURE_MS = 10000L
     }
 
+    private lateinit var output: TextView
     private lateinit var cameraManager: CameraManager
 
-    private lateinit var cameraThread: HandlerThread
-    private lateinit var cameraHandler: Handler
-
     private var cameraDevice: CameraDevice? = null
-    private var captureSession: CameraCaptureSession? = null
-    private var rawReader: ImageReader? = null
 
-    private lateinit var output: TextView
+    // Keys we care about most.
+    private val targetNames = listOf(
+        "vcf.parameter.SnapshotJpegStreamMap",
+        "vcf.parameter.sensorSizeList",
 
-    private lateinit var createSessionButton: Button
-    private lateinit var captureButton: Button
+        "vivo.control.snapshotYuvStreamMap",
+        "vivo.control.snapJpegSize",
+        "vivo.control.picturesize.value",
 
-    private var imageCounter = 0
-    private var resultCounter = 0
+        "vivo.control.streamsUsage",
+        "vivo.control.vcfStreamType",
 
-    private var captureStartTime = 0L
+        "vivo.control.raw_capture_type",
+        "vivo.parameter.highResolutionDngType",
 
-    // =========================================================
-    // SESSION KEYS
-    // =========================================================
+        "vivo.parameter.niceCaptureSensorMode",
+        "vivo.control.sensorMode",
+        "vivo.preview.sensorMode",
 
-    private val ultraHighResolutionKey =
-        CaptureRequest.Key(
-            "vivo.control.ultra_highresolution",
-            Int::class.javaObjectType
-        )
+        "vivo.control.real200mp_switch_on",
+        "vivo.control.ultra_highresolution",
+        "vivo.control.advance_fullsize",
+        "vivo.control.EngineerRemosaicMode",
 
-    private val portraitHighResolutionKey =
-        CaptureRequest.Key(
-            "vivo.control.portrait_high_resolution",
-            Byte::class.javaObjectType
-        )
+        "vivo.control.remosaic.capability",
+        "vivo.control.seamless.remosaic.enable",
 
-    private val aiHighResolutionKey =
-        CaptureRequest.Key(
-            "vivo.control.ai_highresolution",
-            Int::class.javaObjectType
-        )
+        "com.mediatek.seamlessfeature.cameraScenario",
+        "com.mediatek.seamlessfeature.sensorScenario",
+        "com.mediatek.seamlessfeature.sensorScenarioCustomHint",
 
-    private val forceSensorModeKey =
-        CaptureRequest.Key(
-            "vivo.control.forceSensorMode",
-            Int::class.javaObjectType
-        )
-
-    private val engineerRemosaicModeKey =
-        CaptureRequest.Key(
-            "vivo.control.EngineerRemosaicMode",
-            Int::class.javaObjectType
-        )
-
-    private val advanceFullsizeKey =
-        CaptureRequest.Key(
-            "vivo.control.advance_fullsize",
-            Int::class.javaObjectType
-        )
-
-    private val cameraScenarioKey =
-        CaptureRequest.Key(
-            "com.mediatek.seamlessfeature.cameraScenario",
-            Int::class.javaObjectType
-        )
-
-    private val sensorScenarioKey =
-        CaptureRequest.Key(
-            "com.mediatek.seamlessfeature.sensorScenario",
-            Int::class.javaObjectType
-        )
-
-    private val sensorScenarioCustomHintKey =
-        CaptureRequest.Key(
-            "com.mediatek.seamlessfeature.sensorScenarioCustomHint",
-            Int::class.javaObjectType
-        )
-
-    private val streamsUsageKey =
-        CaptureRequest.Key(
-            "vivo.control.streamsUsage",
-            IntArray::class.java
-        )
-
-    private val vcfStreamTypeKey =
-        CaptureRequest.Key(
-            "vivo.control.vcfStreamType",
-            IntArray::class.java
-        )
-
-    private val proRawKey =
-        CaptureRequest.Key(
-            "vivo.control.is_ProRaw_on",
-            Int::class.javaObjectType
-        )
-
-    // =========================================================
-    // CAPTURE KEYS
-    // =========================================================
-
-    private val real200mpKey =
-        CaptureRequest.Key(
-            "vivo.control.real200mp_switch_on",
-            Int::class.javaObjectType
-        )
-
-    private val sensorModeKey =
-        CaptureRequest.Key(
-            "vivo.control.sensorMode",
-            Int::class.javaObjectType
-        )
-
-    private val previewSensorModeKey =
-        CaptureRequest.Key(
-            "vivo.preview.sensorMode",
-            Int::class.javaObjectType
-        )
-
-    private val niceCaptureSensorModeKey =
-        CaptureRequest.Key(
-            "vivo.parameter.niceCaptureSensorMode",
-            Int::class.javaObjectType
-        )
-
-    private val rawCaptureTypeKey =
-        CaptureRequest.Key(
-            "vivo.control.raw_capture_type",
-            Int::class.javaObjectType
-        )
-
-    private val highResolutionDngTypeKey =
-        CaptureRequest.Key(
-            "vivo.parameter.highResolutionDngType",
-            Int::class.javaObjectType
-        )
-
-    private val nativeModeKey =
-        CaptureRequest.Key(
-            "vivo.control.isNativeMode",
-            Int::class.javaObjectType
-        )
-
-    private val seamlessRemosaicKey =
-        CaptureRequest.Key(
-            "vivo.control.seamless.remosaic.enable",
-            Int::class.javaObjectType
-        )
-
-    private val remosaicCapabilityKey =
-        CaptureRequest.Key(
-            "vivo.control.remosaic.capability",
-            Int::class.javaObjectType
-        )
-
-    private val isCaptureKey =
-        CaptureRequest.Key(
-            "vivo.control.isCapture",
-            Int::class.javaObjectType
-        )
-
-    private val isSnapshotKey =
-        CaptureRequest.Key(
-            "vivo.control.is_snapshot",
-            Int::class.javaObjectType
-        )
-
-    private val upscaleKey =
-        CaptureRequest.Key(
-            "vivo.control.isUpscale",
-            Int::class.javaObjectType
-        )
-
-    // =========================================================
-    // RESULT KEYS
-    // =========================================================
-
-    private val requestLeftResultKey =
-        CaptureResult.Key(
-            "vivo.control.RequestLeftInThisSnapshot",
-            IntArray::class.java
-        )
-
-    private val rawCaptureTypeResultKey =
-        CaptureResult.Key(
-            "vivo.control.raw_capture_type",
-            IntArray::class.java
-        )
-
-    private val highResolutionDngTypeResultKey =
-        CaptureResult.Key(
-            "vivo.parameter.highResolutionDngType",
-            IntArray::class.java
-        )
-
-    private val currentModeExResultKey =
-        CaptureResult.Key(
-            "vivo.control.currentModeEx",
-            IntArray::class.java
-        )
-
-    private val sceneModeResultKey =
-        CaptureResult.Key(
-            "vivo.control.sceneMode",
-            IntArray::class.java
-        )
-
-    private val imageEchoResultKey =
-        CaptureResult.Key(
-            "vcf.parameter.ImageEcho",
-            IntArray::class.java
-        )
-
-    private val isCaptureResultKey =
-        CaptureResult.Key(
-            "vivo.control.isCapture",
-            IntArray::class.java
-        )
-
-    private val isSnapshotResultKey =
-        CaptureResult.Key(
-            "vivo.control.is_snapshot",
-            IntArray::class.java
-        )
-
-    private val sensorModeResultKey =
-        CaptureResult.Key(
-            "vivo.control.sensorMode",
-            IntArray::class.java
-        )
-
-    private val niceCaptureSensorModeResultKey =
-        CaptureResult.Key(
-            "vivo.parameter.niceCaptureSensorMode",
-            IntArray::class.java
-        )
-
-    private val tuningHintResultKey =
-        CaptureResult.Key(
-            "com.mediatek.control.capture.hintForIspTuning",
-            IntArray::class.java
-        )
-
-    private val customTuningHintResultKey =
-        CaptureResult.Key(
-            "com.mediatek.control.capture.hintForCustomTuning",
-            IntArray::class.java
-        )
+        "vcf.parameter.ImageEcho"
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        startCameraThread()
-        buildUi()
-
         cameraManager =
             getSystemService(CAMERA_SERVICE) as CameraManager
 
-        log("VIVO SW RAW16 MULTI-FRAME PROBE")
-        log("================================")
+        buildUi()
+
+        log("VIVO VCF KEY TYPE PROBE")
+        log("==============================")
         log("")
         log("Camera ID: $CAMERA_ID")
-        log("RAW output: $WIDTH x $HEIGHT")
         log("")
         log("Purpose:")
-        log("Keep the OEM SW RAW16 session alive")
-        log("and record every result + RAW image")
-        log("for 10 seconds after capture.")
+        log("Recover the real Java/native types")
+        log("of Vivo/VCF Camera2 vendor keys.")
         log("")
 
         if (
@@ -332,58 +103,26 @@ class MainActivity : AppCompatActivity() {
 
     private fun buildUi() {
 
-        val root =
-            LinearLayout(this)
+        val root = LinearLayout(this)
 
-        root.orientation =
-            LinearLayout.VERTICAL
+        root.orientation = LinearLayout.VERTICAL
+        root.setPadding(20, 30, 20, 30)
 
-        root.setPadding(
-            20,
-            25,
-            20,
-            25
-        )
+        val probeButton = Button(this)
 
-        createSessionButton =
-            Button(this)
+        probeButton.text = "PROBE VCF KEY TYPES"
 
-        createSessionButton.text =
-            "CREATE SW RAW16 SESSION"
-
-        createSessionButton.isEnabled =
-            false
-
-        createSessionButton.setOnClickListener {
-            createSwRaw16Session()
+        probeButton.setOnClickListener {
+            Thread {
+                runProbe()
+            }.start()
         }
 
-        root.addView(
-            createSessionButton
-        )
+        root.addView(probeButton)
 
-        captureButton =
-            Button(this)
+        val copyButton = Button(this)
 
-        captureButton.text =
-            "START SW RAW16 CAPTURE"
-
-        captureButton.isEnabled =
-            false
-
-        captureButton.setOnClickListener {
-            startSwRaw16Capture()
-        }
-
-        root.addView(
-            captureButton
-        )
-
-        val copyButton =
-            Button(this)
-
-        copyButton.text =
-            "COPY OUTPUT"
+        copyButton.text = "COPY OUTPUT"
 
         copyButton.setOnClickListener {
 
@@ -394,7 +133,7 @@ class MainActivity : AppCompatActivity() {
 
             clipboard.setPrimaryClip(
                 ClipData.newPlainText(
-                    "Vivo SW RAW16 Multi Frame Probe",
+                    "Vivo VCF Key Type Probe",
                     output.text.toString()
                 )
             )
@@ -406,47 +145,27 @@ class MainActivity : AppCompatActivity() {
             ).show()
         }
 
-        root.addView(
-            copyButton
-        )
+        root.addView(copyButton)
 
-        val clearButton =
-            Button(this)
+        val clearButton = Button(this)
 
-        clearButton.text =
-            "CLEAR OUTPUT"
+        clearButton.text = "CLEAR"
 
         clearButton.setOnClickListener {
             output.text = ""
         }
 
-        root.addView(
-            clearButton
-        )
+        root.addView(clearButton)
 
-        val scroll =
-            ScrollView(this)
+        val scroll = ScrollView(this)
 
-        output =
-            TextView(this)
+        output = TextView(this)
 
-        output.textSize =
-            13f
+        output.textSize = 13f
+        output.setTextIsSelectable(true)
+        output.setPadding(0, 20, 0, 120)
 
-        output.setTextIsSelectable(
-            true
-        )
-
-        output.setPadding(
-            0,
-            20,
-            0,
-            120
-        )
-
-        scroll.addView(
-            output
-        )
+        scroll.addView(output)
 
         root.addView(
             scroll,
@@ -457,9 +176,7 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
-        setContentView(
-            root
-        )
+        setContentView(root)
     }
 
     // =========================================================
@@ -479,239 +196,307 @@ class MainActivity : AppCompatActivity() {
 
         log("OPENING CAMERA 3...")
 
-        cameraManager.openCamera(
-            CAMERA_ID,
-
-            object :
-                CameraDevice.StateCallback() {
-
-                override fun onOpened(
-                    camera: CameraDevice
-                ) {
-
-                    cameraDevice =
-                        camera
-
-                    log(
-                        "Camera 3 opened."
-                    )
-
-                    runOnUiThread {
-                        createSessionButton.isEnabled =
-                            true
-                    }
-                }
-
-                override fun onDisconnected(
-                    camera: CameraDevice
-                ) {
-
-                    log(
-                        "Camera disconnected."
-                    )
-
-                    camera.close()
-
-                    cameraDevice =
-                        null
-                }
-
-                override fun onError(
-                    camera: CameraDevice,
-                    error: Int
-                ) {
-
-                    log(
-                        "CAMERA ERROR: $error"
-                    )
-
-                    camera.close()
-
-                    cameraDevice =
-                        null
-                }
-            },
-
-            cameraHandler
-        )
-    }
-
-    // =========================================================
-    // CREATE SW RAW16 SESSION
-    // =========================================================
-
-    private fun createSwRaw16Session() {
-
-        val camera =
-            cameraDevice ?: return
-
-        closeSessionOnly()
-
-        captureButton.isEnabled =
-            false
-
-        imageCounter =
-            0
-
-        resultCounter =
-            0
-
-        log("")
-        log("")
-        log("################################")
-        log("CREATE SW RAW16 SESSION")
-        log("################################")
-
         try {
 
-            rawReader =
-                ImageReader.newInstance(
-                    WIDTH,
-                    HEIGHT,
-                    ImageFormat.RAW_SENSOR,
-                    12
-                )
+            cameraManager.openCamera(
+                CAMERA_ID,
 
-            rawReader!!
-                .setOnImageAvailableListener(
-                    { reader ->
-                        handleEveryImage(
-                            reader
-                        )
-                    },
-                    cameraHandler
-                )
+                object : CameraDevice.StateCallback() {
 
-            log(
-                "ImageReader created."
-            )
+                    override fun onOpened(
+                        camera: CameraDevice
+                    ) {
 
-            log(
-                "maxImages = 12"
+                        cameraDevice = camera
+
+                        log("Camera 3 opened.")
+                        log("")
+                        log("Press PROBE VCF KEY TYPES.")
+                    }
+
+                    override fun onDisconnected(
+                        camera: CameraDevice
+                    ) {
+
+                        log("Camera disconnected.")
+
+                        camera.close()
+                        cameraDevice = null
+                    }
+
+                    override fun onError(
+                        camera: CameraDevice,
+                        error: Int
+                    ) {
+
+                        log("CAMERA ERROR: $error")
+
+                        camera.close()
+                        cameraDevice = null
+                    }
+                },
+
+                null
             )
 
         } catch (e: Throwable) {
 
-            log(
-                "ImageReader FAILED"
-            )
+            log("OPEN ERROR")
+            log(e.toString())
+        }
+    }
 
-            log(
-                e.toString()
-            )
+    // =========================================================
+    // MAIN PROBE
+    // =========================================================
 
+    private fun runProbe() {
+
+        val camera =
+            cameraDevice
+
+        if (camera == null) {
+
+            log("Camera is not open.")
             return
         }
 
-        val surface =
-            rawReader!!.surface
-
-        val callback =
-            object :
-                CameraCaptureSession.StateCallback() {
-
-                override fun onConfigured(
-                    session:
-                        CameraCaptureSession
-                ) {
-
-                    captureSession =
-                        session
-
-                    log("")
-                    log(
-                        "SW RAW16 SESSION CONFIGURED"
-                    )
-
-                    log(
-                        "HAL accepted the session."
-                    )
-
-                    runOnUiThread {
-                        captureButton.isEnabled =
-                            true
-                    }
-                }
-
-                override fun onConfigureFailed(
-                    session:
-                        CameraCaptureSession
-                ) {
-
-                    log("")
-                    log(
-                        "SW RAW16 SESSION FAILED"
-                    )
-                }
-            }
+        log("")
+        log("")
+        log("################################")
+        log("START KEY TYPE PROBE")
+        log("################################")
 
         try {
 
-            if (
-                Build.VERSION.SDK_INT >=
-                Build.VERSION_CODES.P
-            ) {
-
-                val config =
-                    SessionConfiguration(
-                        SessionConfiguration.SESSION_REGULAR,
-                        listOf(
-                            OutputConfiguration(
-                                surface
-                            )
-                        ),
-                        Executor { runnable ->
-                            cameraHandler.post(
-                                runnable
-                            )
-                        },
-                        callback
-                    )
-
-                val sessionRequest =
-                    camera.createCaptureRequest(
-                        CameraDevice.TEMPLATE_STILL_CAPTURE
-                    )
-
-                sessionRequest.addTarget(
-                    surface
+            val chars =
+                cameraManager.getCameraCharacteristics(
+                    CAMERA_ID
                 )
+
+            val requestKeys =
+                chars.availableCaptureRequestKeys
+
+            val resultKeys =
+                chars.availableCaptureResultKeys
+
+            val sessionKeys =
+                try {
+                    chars.availableSessionKeys
+                } catch (_: Throwable) {
+                    emptyList()
+                }
+
+            log("")
+            log("==============================")
+            log("KEY COUNTS")
+            log("==============================")
+
+            log(
+                "Request keys: ${requestKeys.size}"
+            )
+
+            log(
+                "Result keys: ${resultKeys.size}"
+            )
+
+            log(
+                "Session keys: ${sessionKeys.size}"
+            )
+
+            val previewBuilder =
+                camera.createCaptureRequest(
+                    CameraDevice.TEMPLATE_PREVIEW
+                )
+
+            val stillBuilder =
+                camera.createCaptureRequest(
+                    CameraDevice.TEMPLATE_STILL_CAPTURE
+                )
+
+            for (target in targetNames) {
 
                 log("")
-                log("SESSION PARAMETERS")
-                log("------------------")
+                log("")
+                log("################################")
+                log(target)
+                log("################################")
 
-                applySwRaw16SessionParameters(
-                    sessionRequest
+                val requestKey =
+                    requestKeys.firstOrNull {
+                        it.name == target
+                    }
+
+                val sessionKey =
+                    sessionKeys.firstOrNull {
+                        it.name == target
+                    }
+
+                val resultKey =
+                    resultKeys.firstOrNull {
+                        it.name == target
+                    }
+
+                log("")
+                log(
+                    "REQUEST PRESENT: ${requestKey != null}"
                 )
 
-                config.setSessionParameters(
-                    sessionRequest.build()
+                log(
+                    "SESSION PRESENT: ${sessionKey != null}"
                 )
 
-                camera.createCaptureSession(
-                    config
+                log(
+                    "RESULT PRESENT: ${resultKey != null}"
                 )
 
-            } else {
+                if (requestKey != null) {
 
-                @Suppress("DEPRECATION")
-                camera.createCaptureSession(
-                    listOf(surface),
-                    callback,
-                    cameraHandler
+                    log("")
+                    log("------------------------------")
+                    log("REQUEST KEY OBJECT")
+                    log("------------------------------")
+
+                    inspectObject(
+                        requestKey,
+                        0,
+                        mutableSetOf()
+                    )
+
+                    dumpBuilderDefault(
+                        previewBuilder,
+                        requestKey,
+                        "PREVIEW DEFAULT"
+                    )
+
+                    dumpBuilderDefault(
+                        stillBuilder,
+                        requestKey,
+                        "STILL DEFAULT"
+                    )
+                }
+
+                if (
+                    sessionKey != null &&
+                    sessionKey !== requestKey
+                ) {
+
+                    log("")
+                    log("------------------------------")
+                    log("SESSION KEY OBJECT")
+                    log("------------------------------")
+
+                    inspectObject(
+                        sessionKey,
+                        0,
+                        mutableSetOf()
+                    )
+
+                    dumpBuilderDefault(
+                        previewBuilder,
+                        sessionKey,
+                        "SESSION/PREVIEW DEFAULT"
+                    )
+
+                    dumpBuilderDefault(
+                        stillBuilder,
+                        sessionKey,
+                        "SESSION/STILL DEFAULT"
+                    )
+                }
+
+                if (resultKey != null) {
+
+                    log("")
+                    log("------------------------------")
+                    log("RESULT KEY OBJECT")
+                    log("------------------------------")
+
+                    inspectObject(
+                        resultKey,
+                        0,
+                        mutableSetOf()
+                    )
+                }
+            }
+
+            log("")
+            log("")
+            log("==============================")
+            log("ALL SESSION KEY NAMES")
+            log("==============================")
+
+            for (key in sessionKeys) {
+
+                log(
+                    key.name
                 )
             }
+
+            log("")
+            log("")
+            log("==============================")
+            log("PROBE COMPLETE")
+            log("==============================")
+
+            log("")
+            log("Press COPY OUTPUT.")
 
         } catch (e: Throwable) {
 
             log("")
-            log(
-                "SESSION EXCEPTION"
-            )
+            log("PROBE EXCEPTION")
+            log(e.javaClass.name)
+            log(e.message ?: "")
+        }
+    }
+
+    // =========================================================
+    // BUILDER DEFAULT
+    // =========================================================
+
+    @Suppress("UNCHECKED_CAST")
+    private fun dumpBuilderDefault(
+        builder: CaptureRequest.Builder,
+        key: CaptureRequest.Key<*>,
+        label: String
+    ) {
+
+        log("")
+        log(label)
+
+        try {
+
+            val typed =
+                key as CaptureRequest.Key<Any>
+
+            val value =
+                builder.get(
+                    typed
+                )
+
+            if (value == null) {
+
+                log("  VALUE: null")
+
+            } else {
+
+                log(
+                    "  VALUE CLASS: " +
+                        value.javaClass.name
+                )
+
+                log(
+                    "  VALUE: " +
+                        formatValue(value)
+                )
+            }
+
+        } catch (e: Throwable) {
 
             log(
-                e.javaClass.simpleName +
+                "  READ FAILED: " +
+                    e.javaClass.simpleName +
                     ": " +
                     (e.message ?: "")
             )
@@ -719,991 +504,332 @@ class MainActivity : AppCompatActivity() {
     }
 
     // =========================================================
-    // SESSION PARAMETERS
+    // REFLECTION
     // =========================================================
 
-    private fun applySwRaw16SessionParameters(
-        builder:
-            CaptureRequest.Builder
+    private fun inspectObject(
+        obj: Any?,
+        depth: Int,
+        visited: MutableSet<Int>
     ) {
 
-        setInt(
-            builder,
-            ultraHighResolutionKey,
-            1,
-            "ultra_highresolution"
-        )
+        if (obj == null) {
 
-        setByte(
-            builder,
-            portraitHighResolutionKey,
-            1,
-            "portrait_high_resolution"
-        )
+            indent(depth)
+            logDirect("null")
 
-        setInt(
-            builder,
-            aiHighResolutionKey,
-            0,
-            "ai_highresolution"
-        )
-
-        setInt(
-            builder,
-            cameraScenarioKey,
-            3,
-            "cameraScenario"
-        )
-
-        setInt(
-            builder,
-            sensorScenarioKey,
-            3,
-            "sensorScenario"
-        )
-
-        setInt(
-            builder,
-            sensorScenarioCustomHintKey,
-            1,
-            "sensorScenarioCustomHint"
-        )
-
-        setInt(
-            builder,
-            forceSensorModeKey,
-            0,
-            "forceSensorMode"
-        )
-
-        setInt(
-            builder,
-            engineerRemosaicModeKey,
-            1,
-            "EngineerRemosaicMode"
-        )
-
-        setInt(
-            builder,
-            advanceFullsizeKey,
-            0,
-            "advance_fullsize"
-        )
-
-        setInt(
-            builder,
-            proRawKey,
-            1,
-            "is_ProRaw_on"
-        )
-
-        setIntArray(
-            builder,
-            streamsUsageKey,
-            intArrayOf(
-                2,
-                1,
-                0
-            ),
-            "streamsUsage"
-        )
-
-        setIntArray(
-            builder,
-            vcfStreamTypeKey,
-            intArrayOf(
-                0,
-                1
-            ),
-            "vcfStreamType"
-        )
-    }
-
-    // =========================================================
-    // CAPTURE
-    // =========================================================
-
-    private fun startSwRaw16Capture() {
-
-        val camera =
-            cameraDevice ?: return
-
-        val session =
-            captureSession ?: return
-
-        val reader =
-            rawReader ?: return
-
-        imageCounter =
-            0
-
-        resultCounter =
-            0
-
-        captureStartTime =
-            System.currentTimeMillis()
-
-        runOnUiThread {
-            captureButton.isEnabled =
-                false
+            return
         }
 
-        log("")
-        log("")
-        log("################################")
-        log("START SW RAW16 MULTI-FRAME TEST")
-        log("################################")
-
-        log(
-            "Observation window: 10 seconds"
-        )
-
-        try {
-
-            val builder =
-                camera.createCaptureRequest(
-                    CameraDevice.TEMPLATE_STILL_CAPTURE
-                )
-
-            builder.addTarget(
-                reader.surface
-            )
-
-            builder.set(
-                CaptureRequest.CONTROL_MODE,
-                CameraMetadata.CONTROL_MODE_AUTO
-            )
-
-            builder.set(
-                CaptureRequest.CONTROL_AE_MODE,
-                CaptureRequest.CONTROL_AE_MODE_ON
-            )
-
-            applySwRaw16SessionParameters(
-                builder
-            )
-
-            log("")
-            log("CAPTURE PARAMETERS")
-            log("------------------")
-
-            setInt(
-                builder,
-                real200mpKey,
-                1,
-                "real200mp_switch_on"
-            )
-
-            setInt(
-                builder,
-                sensorModeKey,
-                0,
-                "sensorMode"
-            )
-
-            setInt(
-                builder,
-                previewSensorModeKey,
-                0,
-                "preview.sensorMode"
-            )
-
-            setInt(
-                builder,
-                niceCaptureSensorModeKey,
-                0,
-                "niceCaptureSensorMode"
-            )
-
-            setInt(
-                builder,
-                rawCaptureTypeKey,
-                32,
-                "raw_capture_type"
-            )
-
-            setInt(
-                builder,
-                highResolutionDngTypeKey,
-                1,
-                "highResolutionDngType"
-            )
-
-            setInt(
-                builder,
-                nativeModeKey,
-                1,
-                "isNativeMode"
-            )
-
-            setInt(
-                builder,
-                seamlessRemosaicKey,
-                1,
-                "seamless.remosaic.enable"
-            )
-
-            setInt(
-                builder,
-                remosaicCapabilityKey,
-                1,
-                "remosaic.capability"
-            )
-
-            setInt(
-                builder,
-                upscaleKey,
-                0,
-                "isUpscale"
-            )
-
-            setInt(
-                builder,
-                isCaptureKey,
-                1,
-                "isCapture"
-            )
-
-            setInt(
-                builder,
-                isSnapshotKey,
-                1,
-                "is_snapshot"
-            )
-
-            val request =
-                builder.build()
-
-            session.capture(
-                request,
-
-                object :
-                    CameraCaptureSession.CaptureCallback() {
-
-                    override fun onCaptureStarted(
-                        session:
-                            CameraCaptureSession,
-                        request:
-                            CaptureRequest,
-                        timestamp:
-                            Long,
-                        frameNumber:
-                            Long
-                    ) {
-
-                        log("")
-                        log(
-                            "CAPTURE STARTED"
-                        )
-
-                        log(
-                            "frameNumber = $frameNumber"
-                        )
-
-                        log(
-                            "timestamp = $timestamp"
-                        )
-                    }
-
-                    override fun onCaptureProgressed(
-                        session:
-                            CameraCaptureSession,
-                        request:
-                            CaptureRequest,
-                        partialResult:
-                            CaptureResult
-                    ) {
-
-                        dumpOneResult(
-                            partialResult,
-                            "PARTIAL"
-                        )
-                    }
-
-                    override fun onCaptureCompleted(
-                        session:
-                            CameraCaptureSession,
-                        request:
-                            CaptureRequest,
-                        result:
-                            TotalCaptureResult
-                    ) {
-
-                        dumpOneResult(
-                            result,
-                            "TOTAL"
-                        )
-
-                        log("")
-                        log(
-                            "Camera2 says capture request completed."
-                        )
-
-                        log(
-                            "Keeping session + reader alive for 10 seconds..."
-                        )
-
-                        cameraHandler.postDelayed(
-                            {
-
-                                log("")
-                                log("")
-                                log("================================")
-                                log("10 SECOND OBSERVATION COMPLETE")
-                                log("================================")
-
-                                log(
-                                    "Capture results observed: $resultCounter"
-                                )
-
-                                log(
-                                    "RAW images observed: $imageCounter"
-                                )
-
-                                log("")
-                                log(
-                                    "Session remains open."
-                                )
-
-                                log(
-                                    "Press COPY OUTPUT."
-                                )
-
-                                runOnUiThread {
-                                    captureButton.isEnabled =
-                                        true
-                                }
-
-                            },
-                            WAIT_AFTER_CAPTURE_MS
-                        )
-                    }
-
-                    override fun onCaptureFailed(
-                        session:
-                            CameraCaptureSession,
-                        request:
-                            CaptureRequest,
-                        failure:
-                            CaptureFailure
-                    ) {
-
-                        log("")
-                        log(
-                            "CAPTURE FAILED"
-                        )
-
-                        log(
-                            "Reason: ${failure.reason}"
-                        )
-
-                        log(
-                            "Frame: ${failure.frameNumber}"
-                        )
-
-                        runOnUiThread {
-                            captureButton.isEnabled =
-                                true
-                        }
-                    }
-
-                    override fun onCaptureSequenceCompleted(
-                        session:
-                            CameraCaptureSession,
-                        sequenceId:
-                            Int,
-                        frameNumber:
-                            Long
-                    ) {
-
-                        log("")
-                        log(
-                            "CAPTURE SEQUENCE COMPLETED"
-                        )
-
-                        log(
-                            "sequenceId = $sequenceId"
-                        )
-
-                        log(
-                            "lastFrame = $frameNumber"
-                        )
-                    }
-
-                    override fun onCaptureSequenceAborted(
-                        session:
-                            CameraCaptureSession,
-                        sequenceId:
-                            Int
-                    ) {
-
-                        log("")
-                        log(
-                            "CAPTURE SEQUENCE ABORTED"
-                        )
-
-                        log(
-                            "sequenceId = $sequenceId"
-                        )
-                    }
-                },
-
-                cameraHandler
-            )
-
-        } catch (e: Throwable) {
-
-            log("")
-            log(
-                "CAPTURE EXCEPTION"
-            )
-
-            log(
-                e.javaClass.name
-            )
-
-            log(
-                e.message ?: ""
-            )
-
-            runOnUiThread {
-                captureButton.isEnabled =
-                    true
-            }
+        if (depth > 4) {
+            return
         }
-    }
 
-    // =========================================================
-    // EVERY RESULT
-    // =========================================================
+        val identity =
+            System.identityHashCode(
+                obj
+            )
 
-    private fun dumpOneResult(
-        result:
-            CaptureResult,
-        type:
-            String
-    ) {
+        if (visited.contains(identity)) {
+            return
+        }
 
-        resultCounter++
+        visited.add(identity)
 
-        log("")
-        log("")
-        log("================================")
-        log("$type RESULT #$resultCounter")
-        log("================================")
+        indent(depth)
 
-        log(
-            "Frame number: ${result.frameNumber}"
+        logDirect(
+            "CLASS = ${obj.javaClass.name}"
         )
 
-        val sensorTimestamp =
-            try {
-                result.get(
-                    CaptureResult.SENSOR_TIMESTAMP
-                )
-            } catch (_: Throwable) {
-                null
-            }
+        // -----------------------------------------------------
+        // Try useful methods first.
+        // -----------------------------------------------------
 
-        log(
-            "Sensor timestamp: ${sensorTimestamp ?: "null"}"
-        )
+        val methodNames =
+            listOf(
+                "getName",
+                "getType",
+                "getVendorId",
+                "getNativeKey"
+            )
 
-        logResultArray(
-            result,
-            requestLeftResultKey,
-            "RequestLeftInThisSnapshot"
-        )
-
-        logResultArray(
-            result,
-            rawCaptureTypeResultKey,
-            "raw_capture_type"
-        )
-
-        logResultArray(
-            result,
-            highResolutionDngTypeResultKey,
-            "highResolutionDngType"
-        )
-
-        logResultArray(
-            result,
-            currentModeExResultKey,
-            "currentModeEx"
-        )
-
-        logResultArray(
-            result,
-            sceneModeResultKey,
-            "sceneMode"
-        )
-
-        logResultArray(
-            result,
-            imageEchoResultKey,
-            "ImageEcho"
-        )
-
-        logResultArray(
-            result,
-            isCaptureResultKey,
-            "isCapture"
-        )
-
-        logResultArray(
-            result,
-            isSnapshotResultKey,
-            "is_snapshot"
-        )
-
-        logResultArray(
-            result,
-            sensorModeResultKey,
-            "sensorMode"
-        )
-
-        logResultArray(
-            result,
-            niceCaptureSensorModeResultKey,
-            "niceCaptureSensorMode"
-        )
-
-        logResultArray(
-            result,
-            tuningHintResultKey,
-            "hintForIspTuning"
-        )
-
-        logResultArray(
-            result,
-            customTuningHintResultKey,
-            "hintForCustomTuning"
-        )
-    }
-
-    // =========================================================
-    // EVERY IMAGE
-    // =========================================================
-
-    private fun handleEveryImage(
-        reader:
-            ImageReader
-    ) {
-
-        while (true) {
-
-            val image =
-                try {
-                    reader.acquireNextImage()
-                } catch (_: Throwable) {
-                    null
-                }
-
-            if (image == null) {
-                break
-            }
-
-            imageCounter++
+        for (name in methodNames) {
 
             try {
 
-                log("")
-                log("")
-                log("********************************")
-                log("RAW IMAGE #$imageCounter")
-                log("********************************")
-
-                log(
-                    "Timestamp: ${image.timestamp}"
-                )
-
-                log(
-                    "Width: ${image.width}"
-                )
-
-                log(
-                    "Height: ${image.height}"
-                )
-
-                log(
-                    "Format: ${image.format}"
-                )
-
-                log(
-                    "Planes: ${image.planes.size}"
-                )
-
-                var totalBytes =
-                    0L
-
-                image.planes.forEachIndexed {
-                        index,
-                        plane ->
-
-                    val count =
-                        plane.buffer.remaining()
-
-                    totalBytes +=
-                        count.toLong()
-
-                    log("")
-                    log(
-                        "Plane $index"
+                val method =
+                    findMethod(
+                        obj.javaClass,
+                        name
                     )
 
-                    log(
-                        "Bytes = $count"
+                if (method != null) {
+
+                    method.isAccessible =
+                        true
+
+                    val value =
+                        method.invoke(
+                            obj
+                        )
+
+                    indent(
+                        depth + 1
                     )
 
-                    log(
-                        "RowStride = ${plane.rowStride}"
-                    )
-
-                    log(
-                        "PixelStride = ${plane.pixelStride}"
+                    logDirect(
+                        "METHOD $name() -> " +
+                            describeValue(value)
                     )
                 }
-
-                log("")
-                log(
-                    "Total bytes = $totalBytes"
-                )
-
-                log(
-                    String.format(
-                        Locale.US,
-                        "Approx %.2f MB",
-                        totalBytes /
-                            1024.0 /
-                            1024.0
-                    )
-                )
-
-                saveImage(
-                    image,
-                    imageCounter
-                )
 
             } catch (e: Throwable) {
 
-                log(
-                    "IMAGE HANDLER ERROR:"
+                indent(
+                    depth + 1
                 )
 
-                log(
-                    e.toString()
+                logDirect(
+                    "METHOD $name FAILED: " +
+                        e.javaClass.simpleName
                 )
+            }
+        }
 
-            } finally {
+        // -----------------------------------------------------
+        // Dump fields.
+        // -----------------------------------------------------
+
+        var current:
+            Class<*>? =
+            obj.javaClass
+
+        while (
+            current != null &&
+            current != Any::class.java
+        ) {
+
+            val fields =
+                try {
+                    current.declaredFields
+                } catch (_: Throwable) {
+                    emptyArray<Field>()
+                }
+
+            for (field in fields) {
+
+                if (
+                    Modifier.isStatic(
+                        field.modifiers
+                    )
+                ) {
+                    continue
+                }
+
+                indent(
+                    depth + 1
+                )
 
                 try {
-                    image.close()
-                } catch (_: Throwable) {
-                }
-            }
-        }
-    }
 
-    // =========================================================
-    // SAVE EVERY RAW IMAGE
-    // =========================================================
+                    field.isAccessible =
+                        true
 
-    private fun saveImage(
-        image:
-            Image,
-        index:
-            Int
-    ) {
-
-        try {
-
-            val directory =
-                getExternalFilesDir(
-                    Environment.DIRECTORY_PICTURES
-                ) ?: return
-
-            directory.mkdirs()
-
-            val stamp =
-                SimpleDateFormat(
-                    "yyyyMMdd_HHmmss_SSS",
-                    Locale.US
-                ).format(
-                    Date()
-                )
-
-            val file =
-                File(
-                    directory,
-                    "SW_RAW16_FRAME_" +
-                        String.format(
-                            Locale.US,
-                            "%02d",
-                            index
-                        ) +
-                        "_" +
-                        "${image.width}x${image.height}_" +
-                        "$stamp.raw"
-                )
-
-            FileOutputStream(
-                file
-            ).use {
-                    stream ->
-
-                image.planes.forEach {
-                        plane ->
-
-                    val buffer =
-                        plane.buffer
-                            .duplicate()
-
-                    val bytes =
-                        ByteArray(
-                            buffer.remaining()
+                    val value =
+                        field.get(
+                            obj
                         )
 
-                    buffer.get(
-                        bytes
+                    logDirect(
+                        "FIELD ${field.name}"
                     )
 
-                    stream.write(
-                        bytes
+                    indent(
+                        depth + 2
+                    )
+
+                    logDirect(
+                        "DECLARED TYPE = " +
+                            field.type.name
+                    )
+
+                    indent(
+                        depth + 2
+                    )
+
+                    logDirect(
+                        "VALUE = " +
+                            describeValue(value)
+                    )
+
+                    /*
+                     * Camera2 Key objects usually wrap an
+                     * internal CameraMetadataNative.Key.
+                     *
+                     * Follow that object recursively.
+                     */
+
+                    if (
+                        value != null &&
+                        depth < 3 &&
+                        (
+                            field.name.contains(
+                                "key",
+                                true
+                            ) ||
+                            field.name.contains(
+                                "type",
+                                true
+                            )
+                        )
+                    ) {
+
+                        inspectObject(
+                            value,
+                            depth + 2,
+                            visited
+                        )
+                    }
+
+                } catch (e: Throwable) {
+
+                    logDirect(
+                        "FIELD ${field.name} " +
+                            "ACCESS FAILED: " +
+                            e.javaClass.simpleName
                     )
                 }
             }
 
-            log("")
-            log(
-                "Saved RAW image #$index:"
-            )
-
-            log(
-                file.absolutePath
-            )
-
-            log(
-                String.format(
-                    Locale.US,
-                    "Saved %.2f MB",
-                    file.length() /
-                        1024.0 /
-                        1024.0
-                )
-            )
-
-        } catch (e: Throwable) {
-
-            log(
-                "RAW SAVE ERROR:"
-            )
-
-            log(
-                e.toString()
-            )
+            current =
+                current.superclass
         }
     }
 
-    // =========================================================
-    // RESULT HELPER
-    // =========================================================
+    private fun findMethod(
+        clazz: Class<*>,
+        name: String
+    ): Method? {
 
-    private fun logResultArray(
-        result:
-            CaptureResult,
-        key:
-            CaptureResult.Key<IntArray>,
-        name:
-            String
-    ) {
+        var current:
+            Class<*>? =
+            clazz
 
-        try {
+        while (current != null) {
 
-            val value =
-                result.get(
-                    key
-                )
+            try {
 
-            if (value == null) {
+                val method =
+                    current.declaredMethods
+                        .firstOrNull {
+                            it.name == name &&
+                                it.parameterTypes.isEmpty()
+                        }
 
-                log(
-                    "$name = null"
-                )
+                if (method != null) {
+                    return method
+                }
 
-            } else {
-
-                log(
-                    "$name = " +
-                        value.contentToString()
-                )
+            } catch (_: Throwable) {
             }
 
-        } catch (e: Throwable) {
+            current =
+                current.superclass
+        }
 
-            log(
-                "$name = READ ERROR"
-            )
+        return null
+    }
+
+    // =========================================================
+    // VALUE FORMAT
+    // =========================================================
+
+    private fun describeValue(
+        value: Any?
+    ): String {
+
+        if (value == null) {
+            return "null"
+        }
+
+        return (
+            "${value.javaClass.name} : " +
+                formatValue(value)
+        )
+    }
+
+    private fun formatValue(
+        value: Any
+    ): String {
+
+        return when (value) {
+
+            is IntArray ->
+                value.contentToString()
+
+            is LongArray ->
+                value.contentToString()
+
+            is FloatArray ->
+                value.contentToString()
+
+            is DoubleArray ->
+                value.contentToString()
+
+            is ByteArray ->
+                value.contentToString()
+
+            is BooleanArray ->
+                value.contentToString()
+
+            is Array<*> ->
+                value.contentDeepToString()
+
+            else ->
+                value.toString()
         }
     }
 
     // =========================================================
-    // SETTERS
+    // LOGGING
     // =========================================================
 
-    private fun setInt(
-        builder:
-            CaptureRequest.Builder,
-        key:
-            CaptureRequest.Key<Int>,
-        value:
-            Int,
-        name:
-            String
+    private fun indent(
+        depth: Int
     ) {
 
-        try {
-
-            builder.set(
-                key,
-                value
-            )
-
-            log(
-                "OK $name = $value"
-            )
-
-        } catch (e: Throwable) {
-
-            log(
-                "FAIL $name"
-            )
+        repeat(depth) {
+            logDirect("  ")
         }
     }
 
-    private fun setByte(
-        builder:
-            CaptureRequest.Builder,
-        key:
-            CaptureRequest.Key<Byte>,
-        value:
-            Int,
-        name:
-            String
-    ) {
-
-        try {
-
-            builder.set(
-                key,
-                value.toByte()
-            )
-
-            log(
-                "OK $name = $value"
-            )
-
-        } catch (e: Throwable) {
-
-            log(
-                "FAIL $name"
-            )
-        }
-    }
-
-    private fun setIntArray(
-        builder:
-            CaptureRequest.Builder,
-        key:
-            CaptureRequest.Key<IntArray>,
-        value:
-            IntArray,
-        name:
-            String
-    ) {
-
-        try {
-
-            builder.set(
-                key,
-                value
-            )
-
-            log(
-                "OK $name = " +
-                    value.contentToString()
-            )
-
-        } catch (e: Throwable) {
-
-            log(
-                "FAIL $name"
-            )
-        }
-    }
-
-    // =========================================================
-    // CLEANUP
-    // =========================================================
-
-    private fun closeSessionOnly() {
-
-        try {
-            captureSession?.close()
-        } catch (_: Throwable) {
-        }
-
-        captureSession =
-            null
-
-        try {
-            rawReader?.close()
-        } catch (_: Throwable) {
-        }
-
-        rawReader =
-            null
-    }
-
-    private fun startCameraThread() {
-
-        cameraThread =
-            HandlerThread(
-                "VivoRaw16MultiFrame"
-            )
-
-        cameraThread.start()
-
-        cameraHandler =
-            Handler(
-                cameraThread.looper
-            )
-    }
-
-    private fun log(
-        text:
-            String
+    private fun logDirect(
+        text: String
     ) {
 
         runOnUiThread {
 
-            output.append(
-                text
-            )
-
-            output.append(
-                "\n"
-            )
+            output.append(text)
+            output.append("\n")
         }
     }
 
+    private fun log(
+        text: String
+    ) {
+
+        logDirect(text)
+    }
+
+    // =========================================================
+    // PERMISSIONS / CLEANUP
+    // =========================================================
+
     override fun onRequestPermissionsResult(
-        requestCode:
-            Int,
-        permissions:
-            Array<out String>,
-        grantResults:
-            IntArray
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
     ) {
 
         super.onRequestPermissionsResult(
@@ -1726,15 +852,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
 
-        closeSessionOnly()
-
         try {
             cameraDevice?.close()
-        } catch (_: Throwable) {
-        }
-
-        try {
-            cameraThread.quitSafely()
         } catch (_: Throwable) {
         }
 
