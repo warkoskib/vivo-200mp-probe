@@ -1,24 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Camera access -->
     <uses-permission android:name="android.permission.CAMERA" />
 
-    <uses-feature
-        android:name="android.hardware.camera"
-        android:required="true" />
+    <!-- Android 13+ image/media access -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
+    <!-- Android 12 and older -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
 
     <application
         android:allowBackup="true"
-        android:label="Vivo 200MP Probe"
-        android:theme="@style/Theme.Vivo200MPProbe">
+        android:label="Vivo OEM RAW Watcher"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Vivo200mpprobe">
 
         <activity
             android:name=".MainActivity"
-            android:screenOrientation="portrait"
             android:exported="true">
 
             <intent-filter>
+
                 <action android:name="android.intent.action.MAIN" />
+
                 <category android:name="android.intent.category.LAUNCHER" />
+
             </intent-filter>
 
         </activity>
