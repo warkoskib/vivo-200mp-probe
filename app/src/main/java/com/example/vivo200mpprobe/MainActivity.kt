@@ -1,95 +1,78 @@
 package com.example.vivo200mpprobe
 
 import android.os.Bundle
-import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import kotlin.concurrent.thread
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var runButton: Button
-    private lateinit var outputText: TextView
-    private lateinit var scrollView: ScrollView
+    private lateinit var output: TextView
+    private lateinit var scroll: ScrollView
 
-    private val nativeProbe = NativeProbe()
+    private val targetFile =
+        "/system/etc/vivo_camera_third_compat.json"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         buildUi()
 
-        log("VIVO 200 MP NATIVE HAL PROBE")
-        log("============================")
-        log("")
-        log("This test runs below the Java")
-        log("Camera2 layer using C++/JNI.")
-        log("")
-        log("It will inspect:")
-        log("/dev camera/video/media nodes")
-        log("/sys camera-related paths")
-        log("vendor camera libraries")
-        log("camera-related configuration files")
-        log("native access permissions")
-        log("")
-        log("Press RUN NATIVE HAL PROBE.")
+        readFile()
     }
 
     private fun buildUi() {
 
         val root = LinearLayout(this)
 
-        root.orientation = LinearLayout.VERTICAL
+        root.orientation =
+            LinearLayout.VERTICAL
 
         root.setPadding(
-            24,
-            40,
-            24,
-            40
+            20,
+            30,
+            20,
+            30
         )
 
-        runButton = Button(this)
+        val button =
+            Button(this)
 
-        runButton.text =
-            "RUN NATIVE HAL PROBE"
+        button.text =
+            "READ VIVO CAMERA CONFIG"
 
-        runButton.setOnClickListener {
-            runProbe()
+        button.setOnClickListener {
+
+            output.text = ""
+
+            readFile()
         }
 
-        root.addView(
-            runButton,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        )
+        root.addView(button)
 
-        scrollView =
+        scroll =
             ScrollView(this)
 
-        outputText =
+        output =
             TextView(this)
 
-        outputText.textSize =
-            13f
+        output.textSize =
+            14f
 
-        outputText.setPadding(
+        output.setPadding(
             0,
             20,
             0,
-            120
+            100
         )
 
-        scrollView.addView(
-            outputText
-        )
+        scroll.addView(output)
 
         root.addView(
-            scrollView,
+            scroll,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0,
@@ -100,69 +83,128 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
     }
 
-    private fun runProbe() {
+    private fun readFile() {
 
-        runButton.isEnabled = false
-
-        runButton.text =
-            "RUNNING..."
-
+        log("VIVO THIRD-PARTY CAMERA CONFIG")
+        log("==============================")
         log("")
-        log("")
-        log("============================")
-        log("STARTING NATIVE PROBE")
-        log("============================")
+        log("FILE:")
+        log(targetFile)
         log("")
 
-        thread {
+        val file =
+            File(targetFile)
 
-            try {
+        log(
+            "Exists: ${file.exists()}"
+        )
 
-                val result =
-                    nativeProbe.runNativeProbe()
+        log(
+            "Readable: ${file.canRead()}"
+        )
 
-                runOnUiThread {
+        if (!file.exists()) {
 
-                    outputText.append(
-                        result
-                    )
+            log("")
+            log("FILE DOES NOT EXIST")
 
-                    outputText.append(
-                        "\n"
-                    )
+            return
+        }
 
-                    scrollView.post {
+        if (!file.canRead()) {
 
-                        scrollView.fullScroll(
-                            View.FOCUS_DOWN
-                        )
+            log("")
+            log("ACCESS DENIED")
+
+            return
+        }
+
+        try {
+
+            val text =
+                file.readText()
+
+            log("")
+            log("==============================")
+            log("FULL FILE CONTENT")
+            log("==============================")
+            log("")
+
+            log(text)
+
+            log("")
+            log("==============================")
+            log("INTERESTING LINES")
+            log("==============================")
+
+            val terms =
+                listOf(
+                    "camera",
+                    "package",
+                    "third",
+                    "allow",
+                    "deny",
+                    "white",
+                    "black",
+                    "resolution",
+                    "high",
+                    "200",
+                    "200mp",
+                    "16320",
+                    "12288",
+                    "pixel",
+                    "sensor",
+                    "jpeg",
+                    "raw",
+                    "remosaic",
+                    "full"
+                )
+
+            var matches = 0
+
+            for (
+                (index, line)
+                in text.lines()
+                    .withIndex()
+            ) {
+
+                val lower =
+                    line.lowercase()
+
+                if (
+                    terms.any {
+                        lower.contains(it)
                     }
+                ) {
 
-                    runButton.text =
-                        "RUN AGAIN"
+                    matches++
 
-                    runButton.isEnabled =
-                        true
-                }
+                    log(
+                        "LINE ${index + 1}:"
+                    )
 
-            } catch (e: Throwable) {
-
-                runOnUiThread {
+                    log(line)
 
                     log("")
-                    log("NATIVE PROBE ERROR")
-                    log("============================")
-                    log(e.javaClass.name)
-                    log(e.message ?: "")
-                    log("")
-
-                    runButton.text =
-                        "RUN AGAIN"
-
-                    runButton.isEnabled =
-                        true
                 }
             }
+
+            log(
+                "Interesting lines found: $matches"
+            )
+
+        } catch (e: Throwable) {
+
+            log("")
+            log("READ FAILED")
+
+            log(
+                e.javaClass.name
+            )
+
+            log(
+                e.message ?: ""
+            )
         }
     }
 
@@ -172,18 +214,18 @@ class MainActivity : AppCompatActivity() {
 
         runOnUiThread {
 
-            outputText.append(
+            output.append(
                 message
             )
 
-            outputText.append(
+            output.append(
                 "\n"
             )
 
-            scrollView.post {
+            scroll.post {
 
-                scrollView.fullScroll(
-                    View.FOCUS_DOWN
+                scroll.fullScroll(
+                    ScrollView.FOCUS_DOWN
                 )
             }
         }
