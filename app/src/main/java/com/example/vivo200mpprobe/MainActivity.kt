@@ -3,12 +3,10 @@ package com.example.vivo200mpprobe
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.IntentFilter
 import android.content.pm.ActivityInfo
-import android.content.pm.ApplicationInfo
-import android.content.pm.ComponentInfo
-import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
-import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.Bundle
 import android.widget.Button
 import android.widget.LinearLayout
@@ -22,26 +20,20 @@ class MainActivity : AppCompatActivity() {
     private lateinit var output: TextView
     private lateinit var scroll: ScrollView
 
-    private val targetPackages = listOf(
-        "com.android.camera",
-        "com.vivo.camera2",
-        "com.vivo.camera2pd",
-        "com.vivo.engineercamera",
-        "com.vivo.alphacamera",
-        "test.com.vivo.yzz.cameratestforapi"
-    )
+    private val targetPackage = "com.android.camera"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         buildUi()
 
-        log("VIVO CAMERA PACKAGE PROBE")
+        log("VIVO CAMERA INTENT PROBE")
         log("==============================")
         log("")
-        log("Ready.")
+        log("Target package:")
+        log(targetPackage)
         log("")
-        log("Press SCAN VIVO CAMERA PACKAGES.")
+        log("Press SCAN CAMERA INTENTS.")
     }
 
     private fun buildUi() {
@@ -49,45 +41,18 @@ class MainActivity : AppCompatActivity() {
         val root = LinearLayout(this)
 
         root.orientation = LinearLayout.VERTICAL
-
-        root.setPadding(
-            20,
-            30,
-            20,
-            30
-        )
+        root.setPadding(20, 30, 20, 30)
 
         val scanButton = Button(this)
 
-        scanButton.text = "SCAN VIVO CAMERA PACKAGES"
+        scanButton.text = "SCAN CAMERA INTENTS"
 
         scanButton.setOnClickListener {
 
             output.text = ""
 
-            scanButton.isEnabled = false
-
             Thread {
-
-                try {
-
-                    runProbe()
-
-                } catch (e: Throwable) {
-
-                    log("")
-                    log("FATAL ERROR")
-                    log("==============================")
-                    log(e.javaClass.name)
-                    log(e.message ?: "No error message")
-
-                } finally {
-
-                    runOnUiThread {
-                        scanButton.isEnabled = true
-                    }
-                }
-
+                runProbe()
             }.start()
         }
 
@@ -105,7 +70,7 @@ class MainActivity : AppCompatActivity() {
 
                 Toast.makeText(
                     this,
-                    "No output to copy.",
+                    "No output yet.",
                     Toast.LENGTH_SHORT
                 ).show()
 
@@ -119,7 +84,7 @@ class MainActivity : AppCompatActivity() {
 
             clipboard.setPrimaryClip(
                 ClipData.newPlainText(
-                    "Vivo Camera Probe",
+                    "Vivo Camera Intent Probe",
                     text
                 )
             )
@@ -133,30 +98,13 @@ class MainActivity : AppCompatActivity() {
 
         root.addView(copyButton)
 
-        val clearButton = Button(this)
-
-        clearButton.text = "CLEAR"
-
-        clearButton.setOnClickListener {
-            output.text = ""
-        }
-
-        root.addView(clearButton)
-
         scroll = ScrollView(this)
 
         output = TextView(this)
 
         output.textSize = 13f
-
         output.setTextIsSelectable(true)
-
-        output.setPadding(
-            0,
-            20,
-            0,
-            100
-        )
+        output.setPadding(0, 20, 0, 120)
 
         scroll.addView(output)
 
@@ -172,537 +120,316 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
     }
 
-    @Suppress("DEPRECATION")
     private fun runProbe() {
 
-        log("VIVO CAMERA PACKAGE PROBE")
+        log("VIVO CAMERA INTENT PROBE")
         log("==============================")
-
         log("")
-        log("Android version:")
-        log(android.os.Build.VERSION.RELEASE)
 
-        log("")
-        log("SDK:")
-        log(android.os.Build.VERSION.SDK_INT.toString())
+        try {
 
-        log("")
-        log("Device:")
-        log(android.os.Build.DEVICE)
+            val flags =
+                PackageManager.GET_ACTIVITIES or
+                PackageManager.GET_RECEIVERS or
+                PackageManager.GET_SERVICES or
+                PackageManager.GET_PROVIDERS or
+                PackageManager.GET_META_DATA or
+                PackageManager.GET_PERMISSIONS
 
-        log("")
-        log("Model:")
-        log(android.os.Build.MODEL)
+            val packageInfo =
+                if (Build.VERSION.SDK_INT >= 33) {
 
-        val pm = packageManager
-
-        var installedCount = 0
-        var exportedCount = 0
-
-        for (packageName in targetPackages) {
-
-            log("")
-            log("")
-            log("################################")
-            log(packageName)
-            log("################################")
-
-            try {
-
-                val flags =
-                    PackageManager.GET_ACTIVITIES or
-                    PackageManager.GET_SERVICES or
-                    PackageManager.GET_RECEIVERS or
-                    PackageManager.GET_PROVIDERS or
-                    PackageManager.GET_PERMISSIONS or
-                    PackageManager.GET_META_DATA
-
-                val info =
-                    pm.getPackageInfo(
-                        packageName,
-                        flags
+                    packageManager.getPackageInfo(
+                        targetPackage,
+                        PackageManager.PackageInfoFlags.of(
+                            flags.toLong()
+                        )
                     )
 
-                installedCount++
+                } else {
 
-                log("")
-                log("STATUS: INSTALLED / VISIBLE")
-
-                dumpPackageInfo(info)
-
-                exportedCount +=
-                    countExported(info)
-
-            } catch (
-                e: PackageManager.NameNotFoundException
-            ) {
-
-                log("")
-                log("STATUS: NOT FOUND / NOT VISIBLE")
-
-            } catch (e: Throwable) {
-
-                log("")
-                log("ERROR")
-                log(e.javaClass.name)
-                log(e.message ?: "")
-            }
-        }
-
-        log("")
-        log("")
-        log("==============================")
-        log("FINAL SUMMARY")
-        log("==============================")
-
-        log(
-            "Target packages: ${targetPackages.size}"
-        )
-
-        log(
-            "Installed / visible: $installedCount"
-        )
-
-        log(
-            "Exported components: $exportedCount"
-        )
-
-        log("")
-        log("==============================")
-        log("SCAN COMPLETE")
-        log("==============================")
-
-        log("")
-        log("Press COPY OUTPUT.")
-    }
-
-    @Suppress("DEPRECATION")
-    private fun dumpPackageInfo(
-        info: PackageInfo
-    ) {
-
-        val app = info.applicationInfo
-
-        log("")
-        log("------------------------------")
-        log("PACKAGE INFORMATION")
-        log("------------------------------")
-
-        log(
-            "Package: ${info.packageName}"
-        )
-
-        log(
-            "Version name: ${info.versionName}"
-        )
-
-        log(
-            "Version code: ${info.longVersionCode}"
-        )
-
-        if (app != null) {
-
-            log(
-                "UID: ${app.uid}"
-            )
-
-            log("")
-            log("Source APK:")
-
-            log(
-                app.sourceDir ?: "null"
-            )
-
-            log("")
-            log("Native library directory:")
-
-            log(
-                app.nativeLibraryDir ?: "null"
-            )
-
-            val systemApp =
-                app.flags and
-                    ApplicationInfo.FLAG_SYSTEM != 0
-
-            val updatedSystemApp =
-                app.flags and
-                    ApplicationInfo.FLAG_UPDATED_SYSTEM_APP != 0
-
-            val debuggable =
-                app.flags and
-                    ApplicationInfo.FLAG_DEBUGGABLE != 0
-
-            log("")
-            log(
-                "System app: $systemApp"
-            )
-
-            log(
-                "Updated system app: $updatedSystemApp"
-            )
-
-            log(
-                "Debuggable: $debuggable"
-            )
-
-            dumpApplicationMetadata(app)
-        }
-
-        dumpRequestedPermissions(info)
-        dumpActivities(info)
-        dumpServices(info)
-        dumpProviders(info)
-        dumpReceivers(info)
-    }
-
-    private fun dumpApplicationMetadata(
-        app: ApplicationInfo
-    ) {
-
-        log("")
-        log("------------------------------")
-        log("APPLICATION METADATA")
-        log("------------------------------")
-
-        val meta = app.metaData
-
-        if (
-            meta == null ||
-            meta.isEmpty
-        ) {
-
-            log("None.")
-            return
-        }
-
-        for (key in meta.keySet()) {
-
-            val value =
-                try {
-                    meta.get(key)
-                } catch (_: Throwable) {
-                    "<ERROR>"
+                    @Suppress("DEPRECATION")
+                    packageManager.getPackageInfo(
+                        targetPackage,
+                        flags
+                    )
                 }
 
-            log(
-                "$key = $value"
-            )
-        }
-    }
+            log("Package found.")
+            log("Version: ${packageInfo.versionName}")
+            log("")
 
-    private fun dumpRequestedPermissions(
-        info: PackageInfo
-    ) {
+            log("==============================")
+            log("EXPORTED ACTIVITIES")
+            log("==============================")
 
-        log("")
-        log("------------------------------")
-        log("REQUESTED PERMISSIONS")
-        log("------------------------------")
+            packageInfo.activities
+                ?.filter { it.exported }
+                ?.forEach { activity ->
 
-        val permissions =
-            info.requestedPermissions
+                    dumpActivity(activity)
 
-        if (
-            permissions == null ||
-            permissions.isEmpty()
-        ) {
-
-            log("None.")
-            return
-        }
-
-        for (permission in permissions) {
-            log(permission)
-        }
-    }
-
-    private fun dumpActivities(
-        info: PackageInfo
-    ) {
-
-        log("")
-        log("==============================")
-        log("ACTIVITIES")
-        log("==============================")
-
-        val items =
-            info.activities
-
-        if (
-            items == null ||
-            items.isEmpty()
-        ) {
-
-            log("None visible.")
-            return
-        }
-
-        for (item in items) {
-
-            dumpComponent(
-                "ACTIVITY",
-                item
-            )
-        }
-    }
-
-    private fun dumpServices(
-        info: PackageInfo
-    ) {
-
-        log("")
-        log("==============================")
-        log("SERVICES")
-        log("==============================")
-
-        val items =
-            info.services
-
-        if (
-            items == null ||
-            items.isEmpty()
-        ) {
-
-            log("None visible.")
-            return
-        }
-
-        for (item in items) {
-
-            dumpComponent(
-                "SERVICE",
-                item
-            )
-        }
-    }
-
-    private fun dumpProviders(
-        info: PackageInfo
-    ) {
-
-        log("")
-        log("==============================")
-        log("PROVIDERS")
-        log("==============================")
-
-        val items =
-            info.providers
-
-        if (
-            items == null ||
-            items.isEmpty()
-        ) {
-
-            log("None visible.")
-            return
-        }
-
-        for (item in items) {
+                    probeCommonIntents(
+                        activity.name
+                    )
+                }
 
             log("")
-            log("--------------------------------")
-            log("PROVIDER")
-            log("--------------------------------")
+            log("==============================")
+            log("EXPORTED RECEIVERS")
+            log("==============================")
 
-            log(
-                "Name: ${item.name}"
+            packageInfo.receivers
+                ?.filter { it.exported }
+                ?.forEach { receiver ->
+
+                    log("")
+                    log("--------------------------------")
+                    log("RECEIVER")
+                    log("--------------------------------")
+
+                    log("Name: ${receiver.name}")
+                    log("Enabled: ${receiver.enabled}")
+                    log("Permission: ${receiver.permission ?: "NONE"}")
+
+                    dumpMetadata(
+                        receiver.metaData
+                    )
+                }
+
+            log("")
+            log("==============================")
+            log("EXPORTED SERVICES")
+            log("==============================")
+
+            packageInfo.services
+                ?.filter { it.exported }
+                ?.forEach { service ->
+
+                    log("")
+                    log("--------------------------------")
+                    log("SERVICE")
+                    log("--------------------------------")
+
+                    log("Name: ${service.name}")
+                    log("Enabled: ${service.enabled}")
+                    log("Permission: ${service.permission ?: "NONE"}")
+
+                    dumpMetadata(
+                        service.metaData
+                    )
+                }
+
+            log("")
+            log("==============================")
+            log("EXPORTED PROVIDERS")
+            log("==============================")
+
+            packageInfo.providers
+                ?.filter { it.exported }
+                ?.forEach { provider ->
+
+                    log("")
+                    log("--------------------------------")
+                    log("PROVIDER")
+                    log("--------------------------------")
+
+                    log("Name: ${provider.name}")
+                    log("Authority: ${provider.authority}")
+                    log("Read permission: ${provider.readPermission ?: "NONE"}")
+                    log("Write permission: ${provider.writePermission ?: "NONE"}")
+
+                    dumpMetadata(
+                        provider.metaData
+                    )
+                }
+
+            log("")
+            log("==============================")
+            log("KNOWN CAMERA INTENT RESOLUTION")
+            log("==============================")
+
+            val testActions = listOf(
+                "android.media.action.IMAGE_CAPTURE",
+                "android.media.action.IMAGE_CAPTURE_SECURE",
+                "android.media.action.VIDEO_CAPTURE",
+                "android.intent.action.MAIN",
+                "android.media.action.STILL_IMAGE_CAMERA",
+                "android.media.action.STILL_IMAGE_CAMERA_SECURE"
             )
 
-            log(
-                "Exported: ${item.exported}"
-            )
-
-            log(
-                "Enabled: ${item.enabled}"
-            )
-
-            log(
-                "Authority: ${item.authority ?: "NONE"}"
-            )
-
-            log(
-                "Read permission: ${
-                    item.readPermission ?: "NONE"
-                }"
-            )
-
-            log(
-                "Write permission: ${
-                    item.writePermission ?: "NONE"
-                }"
-            )
-
-            dumpMetadata(
-                item.metaData
-            )
-
-            if (item.exported) {
+            for (action in testActions) {
 
                 log("")
-                log("*** EXPORTED PROVIDER ***")
+                log("ACTION:")
+                log(action)
+
+                try {
+
+                    val intent =
+                        android.content.Intent(action)
+
+                    intent.setPackage(
+                        targetPackage
+                    )
+
+                    val results =
+                        packageManager.queryIntentActivities(
+                            intent,
+                            PackageManager.MATCH_DEFAULT_ONLY
+                        )
+
+                    if (results.isEmpty()) {
+
+                        log("No matching exported activity.")
+
+                    } else {
+
+                        for (result in results) {
+
+                            log(
+                                "MATCH: " +
+                                    result.activityInfo.name
+                            )
+                        }
+                    }
+
+                } catch (e: Throwable) {
+
+                    log(
+                        "Query error: " +
+                            e.javaClass.simpleName
+                    )
+                }
             }
-        }
-    }
-
-    private fun dumpReceivers(
-        info: PackageInfo
-    ) {
-
-        log("")
-        log("==============================")
-        log("RECEIVERS")
-        log("==============================")
-
-        val items =
-            info.receivers
-
-        if (
-            items == null ||
-            items.isEmpty()
-        ) {
-
-            log("None visible.")
-            return
-        }
-
-        for (item in items) {
-
-            dumpComponent(
-                "RECEIVER",
-                item
-            )
-        }
-    }
-
-    private fun dumpComponent(
-        type: String,
-        item: ComponentInfo
-    ) {
-
-        log("")
-        log("--------------------------------")
-        log(type)
-        log("--------------------------------")
-
-        log(
-            "Name: ${item.name}"
-        )
-
-        log(
-            "Exported: ${item.exported}"
-        )
-
-        log(
-            "Enabled: ${item.enabled}"
-        )
-
-        val permission = when (item) {
-
-            is ActivityInfo ->
-                item.permission
-
-            is ServiceInfo ->
-                item.permission
-
-            else ->
-                null
-        }
-
-        log(
-            "Permission: ${
-                permission ?: "NONE"
-            }"
-        )
-
-        dumpMetadata(
-            item.metaData
-        )
-
-        if (
-            item.exported &&
-            permission == null
-        ) {
 
             log("")
-            log(
-                "*** EXPORTED + NO PERMISSION ***"
-            )
+            log("==============================")
+            log("PROBE COMPLETE")
+            log("==============================")
+            log("")
+            log("Press COPY OUTPUT.")
+
+        } catch (e: Throwable) {
+
+            log("")
+            log("PROBE ERROR")
+            log(e.javaClass.name)
+            log(e.message ?: "")
         }
+    }
+
+    private fun dumpActivity(
+        activity: ActivityInfo
+    ) {
+
+        log("")
+        log("--------------------------------")
+        log("ACTIVITY")
+        log("--------------------------------")
+
+        log("Name: ${activity.name}")
+        log("Exported: ${activity.exported}")
+        log("Enabled: ${activity.enabled}")
+        log("Permission: ${activity.permission ?: "NONE"}")
+        log("Launch mode: ${activity.launchMode}")
+        log("Task affinity: ${activity.taskAffinity ?: "NONE"}")
+
+        dumpMetadata(
+            activity.metaData
+        )
     }
 
     private fun dumpMetadata(
-        meta: Bundle?
+        bundle: Bundle?
     ) {
 
-        if (
-            meta == null ||
-            meta.isEmpty
-        ) {
+        if (bundle == null) {
+            return
+        }
 
+        if (bundle.keySet().isEmpty()) {
             return
         }
 
         log("Metadata:")
 
-        for (key in meta.keySet()) {
+        for (key in bundle.keySet()) {
 
-            val value =
-                try {
-                    meta.get(key)
-                } catch (_: Throwable) {
-                    "<ERROR>"
+            try {
+
+                log(
+                    "  $key = ${bundle.get(key)}"
+                )
+
+            } catch (_: Throwable) {
+
+                log(
+                    "  $key = <ERROR>"
+                )
+            }
+        }
+    }
+
+    private fun probeCommonIntents(
+        activityName: String
+    ) {
+
+        val actions = listOf(
+            "android.media.action.IMAGE_CAPTURE",
+            "android.media.action.IMAGE_CAPTURE_SECURE",
+            "android.media.action.VIDEO_CAPTURE",
+            "android.media.action.STILL_IMAGE_CAMERA",
+            "android.media.action.STILL_IMAGE_CAMERA_SECURE"
+        )
+
+        log("Intent action probes:")
+
+        for (action in actions) {
+
+            try {
+
+                val intent =
+                    android.content.Intent(action)
+
+                intent.setClassName(
+                    targetPackage,
+                    activityName
+                )
+
+                val resolved =
+                    packageManager.resolveActivity(
+                        intent,
+                        PackageManager.MATCH_DEFAULT_ONLY
+                    )
+
+                if (resolved != null) {
+
+                    log(
+                        "  ACCEPTS/RESOLVES: $action"
+                    )
+
+                } else {
+
+                    log(
+                        "  no match: $action"
+                    )
                 }
 
-            log(
-                "  $key = $value"
-            )
+            } catch (e: Throwable) {
+
+                log(
+                    "  error: $action"
+                )
+            }
         }
     }
 
-    private fun countExported(
-        info: PackageInfo
-    ): Int {
-
-        var count = 0
-
-        info.activities?.forEach {
-
-            if (it.exported) {
-                count++
-            }
-        }
-
-        info.services?.forEach {
-
-            if (it.exported) {
-                count++
-            }
-        }
-
-        info.receivers?.forEach {
-
-            if (it.exported) {
-                count++
-            }
-        }
-
-        info.providers?.forEach {
-
-            if (it.exported) {
-                count++
-            }
-        }
-
-        return count
-    }
-
-    private fun log(
-        text: String
-    ) {
+    private fun log(message: String) {
 
         runOnUiThread {
 
-            output.append(text)
+            output.append(message)
             output.append("\n")
         }
     }
