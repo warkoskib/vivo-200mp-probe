@@ -1,11 +1,7 @@
 package com.example.vivo200mpprobe
 
 import android.Manifest
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.ContentUris
-import android.content.ContentValues
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
@@ -13,176 +9,130 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
+import android.text.method.ScrollingMovementMethod
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
-    companion object {
-        private const val CAMERA_PERMISSION_REQUEST = 1001
-        private const val STORAGE_PERMISSION_REQUEST = 1002
+    private lateinit var outputText: TextView
 
-        private const val VIVO_CAMERA_PACKAGE = "com.android.camera"
+    private var baselineMillis: Long = 0L
 
-        /*
-         * We'll treat everything created after this timestamp
-         * as potentially belonging to the OEM 200 MP capture.
-         */
-        private var baselineTimeMs: Long = 0L
-    }
+    private val permissionLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { permissions ->
 
-    private lateinit var output: TextView
+            append("\n================================")
+            append("PERMISSION RESULT")
+            append("================================")
 
-    private lateinit var launchCameraButton: Button
-    private lateinit var scanButton: Button
-    private lateinit var copyButton: Button
-    private lateinit var clearButton: Button
+            permissions.forEach { (permission, granted) ->
+                append("$permission = $granted")
+            }
+
+            showCurrentPermissionState()
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         buildUi()
 
-        log("VIVO OEM CAMERA RAW/DNG WATCHER")
-        log("================================")
-        log("")
-        log("Purpose:")
-        log("1. Launch stock Vivo Camera")
-        log("2. Manually choose 200 MP")
-        log("3. Take a photo")
-        log("4. Return here")
-        log("5. Scan MediaStore for new files")
-        log("")
-        log("Target package:")
-        log(VIVO_CAMERA_PACKAGE)
-        log("")
+        append("VIVO OEM CAMERA RAW/DNG WATCHER")
+        append("================================")
+        append("")
+        append("Purpose:")
+        append("1. Request image-library permission")
+        append("2. Record MediaStore baseline")
+        append("3. Launch stock Vivo Camera")
+        append("4. Manually choose 200 MP")
+        append("5. Take ONE photo")
+        append("6. Return to this app")
+        append("7. Scan for every new camera file")
+        append("")
+        append("Target package:")
+        append("com.android.camera")
+        append("")
 
-        requestNeededPermissions()
+        showCurrentPermissionState()
     }
 
-    // =========================================================
+    // ============================================================
     // UI
-    // =========================================================
+    // ============================================================
 
     private fun buildUi() {
 
-        val root =
-            LinearLayout(this)
-
-        root.orientation =
-            LinearLayout.VERTICAL
-
-        root.setPadding(
-            20,
-            25,
-            20,
-            25
-        )
-
-        launchCameraButton =
-            Button(this)
-
-        launchCameraButton.text =
-            "1 - OPEN VIVO CAMERA"
-
-        launchCameraButton.setOnClickListener {
-            launchVivoCamera()
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 24, 24, 24)
         }
 
-        root.addView(
-            launchCameraButton
-        )
+        val requestButton = Button(this).apply {
+            text = "REQUEST MEDIA PERMISSION"
 
-        scanButton =
-            Button(this)
-
-        scanButton.text =
-            "2 - SCAN NEW CAMERA FILES"
-
-        scanButton.setOnClickListener {
-            scanForNewFiles()
+            setOnClickListener {
+                requestMediaPermissions()
+            }
         }
 
-        root.addView(
-            scanButton
-        )
+        val baselineButton = Button(this).apply {
+            text = "RECORD BASELINE"
 
-        copyButton =
-            Button(this)
-
-        copyButton.text =
-            "COPY OUTPUT"
-
-        copyButton.setOnClickListener {
-
-            val clipboard =
-                getSystemService(
-                    Context.CLIPBOARD_SERVICE
-                ) as ClipboardManager
-
-            clipboard.setPrimaryClip(
-                ClipData.newPlainText(
-                    "Vivo OEM RAW DNG Watcher",
-                    output.text.toString()
-                )
-            )
-
-            Toast.makeText(
-                this,
-                "Output copied",
-                Toast.LENGTH_SHORT
-            ).show()
+            setOnClickListener {
+                recordBaseline()
+            }
         }
 
-        root.addView(
-            copyButton
-        )
+        val launchButton = Button(this).apply {
+            text = "LAUNCH VIVO CAMERA"
 
-        clearButton =
-            Button(this)
-
-        clearButton.text =
-            "CLEAR"
-
-        clearButton.setOnClickListener {
-            output.text = ""
+            setOnClickListener {
+                launchVivoCamera()
+            }
         }
 
-        root.addView(
-            clearButton
-        )
+        val scanButton = Button(this).apply {
+            text = "SCAN NEW CAMERA FILES"
 
-        val scroll =
-            ScrollView(this)
+            setOnClickListener {
+                scanNewFiles()
+            }
+        }
 
-        output =
-            TextView(this)
+        val copyButton = Button(this).apply {
+            text = "COPY OUTPUT"
 
-        output.textSize =
-            13f
+            setOnClickListener {
+                copyOutput()
+            }
+        }
 
-        output.setTextIsSelectable(
-            true
-        )
+        outputText = TextView(this).apply {
+            textSize = 14f
+            setTextIsSelectable(true)
+            movementMethod = ScrollingMovementMethod()
+        }
 
-        output.setPadding(
-            0,
-            20,
-            0,
-            150
-        )
+        val scroll = ScrollView(this).apply {
+            addView(outputText)
+        }
 
-        scroll.addView(
-            output
-        )
+        root.addView(requestButton)
+        root.addView(baselineButton)
+        root.addView(launchButton)
+        root.addView(scanButton)
+        root.addView(copyButton)
 
         root.addView(
             scroll,
@@ -193,354 +143,312 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
-        setContentView(
-            root
-        )
+        setContentView(root)
     }
 
-    // =========================================================
+    // ============================================================
     // PERMISSIONS
-    // =========================================================
+    // ============================================================
 
-    private fun requestNeededPermissions() {
+    private fun requestMediaPermissions() {
 
-        val permissions =
-            mutableListOf<String>()
+        val permissions = mutableListOf<String>()
 
         if (
-            ActivityCompat.checkSelfPermission(
+            ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.CAMERA
             ) != PackageManager.PERMISSION_GRANTED
         ) {
-
-            permissions.add(
-                Manifest.permission.CAMERA
-            )
+            permissions.add(Manifest.permission.CAMERA)
         }
 
-        if (
-            Build.VERSION.SDK_INT >=
-            Build.VERSION_CODES.TIRAMISU
-        ) {
+        if (Build.VERSION.SDK_INT >= 33) {
 
             if (
-                ActivityCompat.checkSelfPermission(
+                ContextCompat.checkSelfPermission(
                     this,
                     Manifest.permission.READ_MEDIA_IMAGES
                 ) != PackageManager.PERMISSION_GRANTED
             ) {
-
                 permissions.add(
                     Manifest.permission.READ_MEDIA_IMAGES
                 )
+            }
+
+            if (Build.VERSION.SDK_INT >= 34) {
+
+                if (
+                    ContextCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+                    ) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    permissions.add(
+                        Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+                    )
+                }
             }
 
         } else {
 
             if (
-                ActivityCompat.checkSelfPermission(
+                ContextCompat.checkSelfPermission(
                     this,
                     Manifest.permission.READ_EXTERNAL_STORAGE
                 ) != PackageManager.PERMISSION_GRANTED
             ) {
-
                 permissions.add(
                     Manifest.permission.READ_EXTERNAL_STORAGE
                 )
             }
         }
 
-        if (permissions.isNotEmpty()) {
+        if (permissions.isEmpty()) {
 
-            ActivityCompat.requestPermissions(
-                this,
-                permissions.toTypedArray(),
-                STORAGE_PERMISSION_REQUEST
+            append("")
+            append("All applicable permissions already granted.")
+
+            showCurrentPermissionState()
+
+        } else {
+
+            append("")
+            append("Requesting permissions:")
+
+            permissions.forEach {
+                append(it)
+            }
+
+            permissionLauncher.launch(
+                permissions.toTypedArray()
             )
         }
     }
 
-    // =========================================================
-    // LAUNCH STOCK VIVO CAMERA
-    // =========================================================
+    private fun showCurrentPermissionState() {
+
+        append("")
+        append("================================")
+        append("CURRENT PERMISSION STATE")
+        append("================================")
+
+        val cameraGranted =
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.CAMERA
+            ) == PackageManager.PERMISSION_GRANTED
+
+        append("CAMERA = $cameraGranted")
+
+        if (Build.VERSION.SDK_INT >= 33) {
+
+            val mediaGranted =
+                ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.READ_MEDIA_IMAGES
+                ) == PackageManager.PERMISSION_GRANTED
+
+            append("READ_MEDIA_IMAGES = $mediaGranted")
+
+            if (Build.VERSION.SDK_INT >= 34) {
+
+                val selectedGranted =
+                    ContextCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+                    ) == PackageManager.PERMISSION_GRANTED
+
+                append(
+                    "READ_MEDIA_VISUAL_USER_SELECTED = $selectedGranted"
+                )
+            }
+
+        } else {
+
+            val storageGranted =
+                ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.READ_EXTERNAL_STORAGE
+                ) == PackageManager.PERMISSION_GRANTED
+
+            append(
+                "READ_EXTERNAL_STORAGE = $storageGranted"
+            )
+        }
+    }
+
+    // ============================================================
+    // BASELINE
+    // ============================================================
+
+    private fun recordBaseline() {
+
+        baselineMillis = System.currentTimeMillis()
+
+        append("")
+        append("================================")
+        append("BASELINE RECORDED")
+        append("================================")
+
+        append("Timestamp = $baselineMillis")
+
+        append(
+            "Time = ${
+                formatTime(
+                    baselineMillis
+                )
+            }"
+        )
+
+        append("")
+        append("NEXT:")
+        append("1. Press LAUNCH VIVO CAMERA")
+        append("2. Switch to 200 MP")
+        append("3. Take ONE photo")
+        append("4. Wait for saving to finish")
+        append("5. Return here")
+        append("6. Press SCAN NEW CAMERA FILES")
+    }
+
+    // ============================================================
+    // LAUNCH OEM CAMERA
+    // ============================================================
 
     private fun launchVivoCamera() {
 
-        baselineTimeMs =
-            System.currentTimeMillis()
+        if (baselineMillis == 0L) {
+            recordBaseline()
+        }
 
-        log("")
-        log("================================")
-        log("BASELINE RECORDED")
-        log("================================")
-
-        log(
-            "Timestamp = $baselineTimeMs"
-        )
-
-        log(
-            "Time = " +
-                SimpleDateFormat(
-                    "yyyy-MM-dd HH:mm:ss.SSS",
-                    Locale.US
-                ).format(
-                    Date(
-                        baselineTimeMs
-                    )
-                )
-        )
-
-        log("")
-        log("Launching stock Vivo Camera...")
-        log("")
-        log("IN THE VIVO CAMERA:")
-        log("1. Switch to 200 MP mode")
-        log("2. Take ONE photo")
-        log("3. Wait until it finishes saving")
-        log("4. Return to this app")
-        log("5. Press SCAN NEW CAMERA FILES")
-        log("")
+        append("")
+        append("Launching stock Vivo Camera...")
 
         try {
 
-            val packageManager =
-                packageManager
+            val intent =
+                packageManager.getLaunchIntentForPackage(
+                    "com.android.camera"
+                )
 
-            val launchIntent =
-                packageManager
-                    .getLaunchIntentForPackage(
-                        VIVO_CAMERA_PACKAGE
-                    )
+            if (intent != null) {
 
-            if (launchIntent != null) {
-
-                launchIntent.addFlags(
+                intent.addFlags(
                     Intent.FLAG_ACTIVITY_NEW_TASK
                 )
 
-                startActivity(
-                    launchIntent
-                )
+                startActivity(intent)
 
-                log(
-                    "Vivo Camera launch intent sent."
-                )
+                append("")
+                append("Vivo Camera launch intent sent.")
 
-                return
+            } else {
+
+                append("")
+                append("Could not obtain launch intent")
+                append("for com.android.camera.")
+
+                val fallback =
+                    Intent(
+                        MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA
+                    )
+
+                startActivity(fallback)
+
+                append("Generic camera intent launched.")
             }
 
-        } catch (e: Throwable) {
+        } catch (e: Exception) {
 
-            log(
-                "Normal package launch failed:"
-            )
-
-            log(
-                e.javaClass.simpleName +
-                    ": " +
-                    (e.message ?: "")
-            )
-        }
-
-        /*
-         * Fallback to the exported CameraActivity
-         * discovered earlier.
-         */
-        try {
-
-            val explicitIntent =
-                Intent()
-
-            explicitIntent.setClassName(
-                VIVO_CAMERA_PACKAGE,
-                "com.android.camera.CameraActivity"
-            )
-
-            explicitIntent.addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK
-            )
-
-            startActivity(
-                explicitIntent
-            )
-
-            log(
-                "Explicit CameraActivity launch sent."
-            )
-
-        } catch (e: Throwable) {
-
-            log("")
-            log(
-                "FAILED TO OPEN VIVO CAMERA"
-            )
-
-            log(
-                e.javaClass.name
-            )
-
-            log(
-                e.message ?: ""
-            )
+            append("")
+            append("CAMERA LAUNCH ERROR")
+            append("${e.javaClass.simpleName}: ${e.message}")
         }
     }
 
-    // =========================================================
+    // ============================================================
     // MEDIASTORE SCAN
-    // =========================================================
+    // ============================================================
 
-    private fun scanForNewFiles() {
+    private fun scanNewFiles() {
 
-        if (baselineTimeMs == 0L) {
+        if (baselineMillis == 0L) {
 
-            log("")
-            log(
-                "No baseline timestamp exists."
-            )
-
-            log(
-                "Press OPEN VIVO CAMERA first."
-            )
+            append("")
+            append("ERROR:")
+            append("No baseline exists.")
+            append("Press RECORD BASELINE first.")
 
             return
         }
 
-        log("")
-        log("")
-        log("================================")
-        log("SCANNING MEDIASTORE")
-        log("================================")
+        append("")
+        append("================================")
+        append("SCANNING MEDIASTORE")
+        append("================================")
 
-        log(
-            "Looking for files created after:"
-        )
+        append("Looking for files created after:")
+        append("$baselineMillis")
+        append(formatTime(baselineMillis))
 
-        log(
-            "$baselineTimeMs"
-        )
+        var total = 0
 
-        log("")
+        total += scanImagesCollection()
+        total += scanFilesCollection()
 
-        var foundCount =
-            0
+        append("")
+        append("================================")
+        append("SCAN COMPLETE")
+        append("================================")
 
-        foundCount +=
-            scanCollection(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                "Images"
-            )
+        append("Matching entries found = $total")
 
-        /*
-         * Some OEMs can publish RAW/DNG files through Files rather
-         * than Images. Scan Files as well.
-         */
-        if (
-            Build.VERSION.SDK_INT >=
-            Build.VERSION_CODES.Q
-        ) {
+        if (total == 0) {
 
-            foundCount +=
-                scanCollection(
-                    MediaStore.Files.getContentUri(
-                        MediaStore.VOLUME_EXTERNAL
-                    ),
-                    "Files"
-                )
-
-        } else {
-
-            foundCount +=
-                scanCollection(
-                    MediaStore.Files.getContentUri(
-                        "external"
-                    ),
-                    "Files"
-                )
+            append("")
+            append("No new entries were visible.")
+            append("")
+            append("Check:")
+            append("READ_MEDIA_IMAGES should be TRUE.")
+            append("")
+            append("Also wait several seconds after")
+            append("the Vivo Camera finishes saving")
+            append("and press SCAN again.")
         }
-
-        log("")
-        log("================================")
-        log("SCAN COMPLETE")
-        log("================================")
-
-        log(
-            "Matching entries found = $foundCount"
-        )
-
-        if (foundCount == 0) {
-
-            log("")
-            log(
-                "No new JPEG/HEIC/DNG/RAW entries were found."
-            )
-
-            log(
-                "Wait a few seconds and scan again."
-            )
-        }
-
-        log("")
-        log(
-            "Press COPY OUTPUT and paste the result here."
-        )
     }
 
-    private fun scanCollection(
-        collection:
-            Uri,
-        label:
-            String
-    ): Int {
+    // ============================================================
+    // IMAGES COLLECTION
+    // ============================================================
 
-        var found =
-            0
+    private fun scanImagesCollection(): Int {
 
-        log("")
-        log("------------------------------")
-        log("$label COLLECTION")
-        log("------------------------------")
+        append("")
+        append("------------------------------")
+        append("Images COLLECTION")
+        append("------------------------------")
+
+        val uri =
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI
 
         val projection =
-            mutableListOf(
-                MediaStore.MediaColumns._ID,
-                MediaStore.MediaColumns.DISPLAY_NAME,
-                MediaStore.MediaColumns.MIME_TYPE,
-                MediaStore.MediaColumns.SIZE,
-                MediaStore.MediaColumns.DATE_ADDED,
-                MediaStore.MediaColumns.DATE_MODIFIED
+            arrayOf(
+                MediaStore.Images.Media._ID,
+                MediaStore.Images.Media.DISPLAY_NAME,
+                MediaStore.Images.Media.MIME_TYPE,
+                MediaStore.Images.Media.SIZE,
+                MediaStore.Images.Media.DATE_ADDED,
+                MediaStore.Images.Media.DATE_MODIFIED,
+                MediaStore.Images.Media.RELATIVE_PATH,
+                MediaStore.Images.Media.WIDTH,
+                MediaStore.Images.Media.HEIGHT
             )
 
-        /*
-         * WIDTH/HEIGHT aren't guaranteed on every Files provider,
-         * so we'll attempt them but handle failures gracefully.
-         */
-        projection.add(
-            MediaStore.MediaColumns.WIDTH
-        )
-
-        projection.add(
-            MediaStore.MediaColumns.HEIGHT
-        )
-
-        if (
-            Build.VERSION.SDK_INT >=
-            Build.VERSION_CODES.Q
-        ) {
-
-            projection.add(
-                MediaStore.MediaColumns.RELATIVE_PATH
-            )
-        }
-
-        /*
-         * DATE_ADDED is stored in seconds.
-         */
         val baselineSeconds =
-            baselineTimeMs / 1000L
+            (baselineMillis / 1000L) - 5L
 
         val selection =
-            "${MediaStore.MediaColumns.DATE_ADDED} >= ?"
+            "${MediaStore.Images.Media.DATE_ADDED} >= ?"
 
         val selectionArgs =
             arrayOf(
@@ -548,446 +456,440 @@ class MainActivity : AppCompatActivity() {
             )
 
         val sortOrder =
-            "${MediaStore.MediaColumns.DATE_ADDED} ASC"
+            "${MediaStore.Images.Media.DATE_ADDED} DESC"
 
-        var cursor:
-            Cursor? =
-            null
+        var count = 0
 
         try {
 
-            cursor =
-                contentResolver.query(
-                    collection,
-                    projection.toTypedArray(),
-                    selection,
-                    selectionArgs,
-                    sortOrder
-                )
+            contentResolver.query(
+                uri,
+                projection,
+                selection,
+                selectionArgs,
+                sortOrder
+            )?.use { cursor ->
 
-            if (cursor == null) {
+                while (cursor.moveToNext()) {
 
-                log(
-                    "Query returned null cursor."
-                )
+                    count++
 
-                return 0
-            }
-
-            val idIndex =
-                cursor.getColumnIndex(
-                    MediaStore.MediaColumns._ID
-                )
-
-            val nameIndex =
-                cursor.getColumnIndex(
-                    MediaStore.MediaColumns.DISPLAY_NAME
-                )
-
-            val mimeIndex =
-                cursor.getColumnIndex(
-                    MediaStore.MediaColumns.MIME_TYPE
-                )
-
-            val sizeIndex =
-                cursor.getColumnIndex(
-                    MediaStore.MediaColumns.SIZE
-                )
-
-            val dateAddedIndex =
-                cursor.getColumnIndex(
-                    MediaStore.MediaColumns.DATE_ADDED
-                )
-
-            val modifiedIndex =
-                cursor.getColumnIndex(
-                    MediaStore.MediaColumns.DATE_MODIFIED
-                )
-
-            val widthIndex =
-                cursor.getColumnIndex(
-                    MediaStore.MediaColumns.WIDTH
-                )
-
-            val heightIndex =
-                cursor.getColumnIndex(
-                    MediaStore.MediaColumns.HEIGHT
-                )
-
-            val relativePathIndex =
-                if (
-                    Build.VERSION.SDK_INT >=
-                    Build.VERSION_CODES.Q
-                ) {
-
-                    cursor.getColumnIndex(
-                        MediaStore.MediaColumns.RELATIVE_PATH
-                    )
-
-                } else {
-
-                    -1
-                }
-
-            while (
-                cursor.moveToNext()
-            ) {
-
-                val id =
-                    if (idIndex >= 0) {
-                        cursor.getLong(
-                            idIndex
-                        )
-                    } else {
-                        -1L
-                    }
-
-                val name =
-                    if (nameIndex >= 0) {
-                        cursor.getString(
-                            nameIndex
-                        )
-                    } else {
-                        null
-                    }
-
-                val mime =
-                    if (mimeIndex >= 0) {
-                        cursor.getString(
-                            mimeIndex
-                        )
-                    } else {
-                        null
-                    }
-
-                /*
-                 * Filter down to image/raw-looking entries.
-                 */
-                if (
-                    !looksInteresting(
-                        name,
-                        mime
-                    )
-                ) {
-                    continue
-                }
-
-                found++
-
-                val size =
-                    if (sizeIndex >= 0) {
-                        cursor.getLong(
-                            sizeIndex
-                        )
-                    } else {
-                        -1L
-                    }
-
-                val dateAdded =
-                    if (dateAddedIndex >= 0) {
-                        cursor.getLong(
-                            dateAddedIndex
-                        )
-                    } else {
-                        0L
-                    }
-
-                val modified =
-                    if (modifiedIndex >= 0) {
-                        cursor.getLong(
-                            modifiedIndex
-                        )
-                    } else {
-                        0L
-                    }
-
-                val width =
-                    if (widthIndex >= 0) {
-                        cursor.getInt(
-                            widthIndex
-                        )
-                    } else {
-                        0
-                    }
-
-                val height =
-                    if (heightIndex >= 0) {
-                        cursor.getInt(
-                            heightIndex
-                        )
-                    } else {
-                        0
-                    }
-
-                val relativePath =
-                    if (
-                        relativePathIndex >= 0
-                    ) {
-
-                        cursor.getString(
-                            relativePathIndex
-                        )
-
-                    } else {
-
-                        null
-                    }
-
-                val itemUri =
-                    ContentUris.withAppendedId(
-                        collection,
-                        id
-                    )
-
-                log("")
-                log("********************************")
-                log("NEW MEDIA ENTRY #$found")
-                log("********************************")
-
-                log(
-                    "Collection = $label"
-                )
-
-                log(
-                    "Name = ${name ?: "null"}"
-                )
-
-                log(
-                    "MIME = ${mime ?: "null"}"
-                )
-
-                log(
-                    "Width = $width"
-                )
-
-                log(
-                    "Height = $height"
-                )
-
-                log(
-                    "Pixels = " +
-                        formatMegapixels(
-                            width,
-                            height
-                        )
-                )
-
-                log(
-                    "Size bytes = $size"
-                )
-
-                log(
-                    "Size MB = " +
-                        formatMb(
-                            size
-                        )
-                )
-
-                log(
-                    "Date added = $dateAdded"
-                )
-
-                log(
-                    "Date modified = $modified"
-                )
-
-                if (relativePath != null) {
-
-                    log(
-                        "Relative path = $relativePath"
-                    )
-                }
-
-                log(
-                    "URI = $itemUri"
-                )
-
-                /*
-                 * Try opening the entry.
-                 */
-                try {
-
-                    contentResolver
-                        .openFileDescriptor(
-                            itemUri,
-                            "r"
-                        )
-                        ?.use {
-                                descriptor ->
-
-                            log(
-                                "Openable = YES"
-                            )
-
-                            log(
-                                "FD statSize = ${descriptor.statSize}"
-                            )
-                        }
-
-                } catch (e: Throwable) {
-
-                    log(
-                        "Openable = NO"
-                    )
-
-                    log(
-                        "Open error = " +
-                            e.javaClass.simpleName +
-                            ": " +
-                            (e.message ?: "")
+                    dumpImageRow(
+                        cursor,
+                        uri,
+                        count
                     )
                 }
             }
 
-        } catch (e: Throwable) {
+        } catch (e: Exception) {
 
-            log(
-                "Collection query error:"
+            append("")
+            append("Images query ERROR:")
+            append(
+                "${e.javaClass.simpleName}: ${e.message}"
             )
-
-            log(
-                e.javaClass.name
-            )
-
-            log(
-                e.message ?: ""
-            )
-
-        } finally {
-
-            try {
-                cursor?.close()
-            } catch (_: Throwable) {
-            }
         }
 
-        return found
+        append("")
+        append("Images entries = $count")
+
+        return count
     }
 
-    // =========================================================
-    // FILTER
-    // =========================================================
+    private fun dumpImageRow(
+        cursor: Cursor,
+        baseUri: Uri,
+        number: Int
+    ) {
 
-    private fun looksInteresting(
-        name:
-            String?,
-        mime:
-            String?
-    ): Boolean {
-
-        val lowerName =
-            name?.lowercase(
-                Locale.US
-            ) ?: ""
-
-        val lowerMime =
-            mime?.lowercase(
-                Locale.US
-            ) ?: ""
-
-        if (
-            lowerMime.startsWith(
-                "image/"
-            )
-        ) {
-            return true
-        }
-
-        if (
-            lowerMime.contains(
-                "dng"
-            ) ||
-            lowerMime.contains(
-                "raw"
-            )
-        ) {
-            return true
-        }
-
-        val extensions =
-            listOf(
-                ".jpg",
-                ".jpeg",
-                ".heic",
-                ".heif",
-                ".dng",
-                ".raw",
-                ".bin"
+        val id =
+            cursor.getLongColumn(
+                MediaStore.Images.Media._ID
             )
 
-        return extensions.any {
-            lowerName.endsWith(
-                it
+        val name =
+            cursor.getStringColumn(
+                MediaStore.Images.Media.DISPLAY_NAME
             )
-        }
-    }
 
-    // =========================================================
-    // FORMAT HELPERS
-    // =========================================================
+        val mime =
+            cursor.getStringColumn(
+                MediaStore.Images.Media.MIME_TYPE
+            )
 
-    private fun formatMegapixels(
-        width:
-            Int,
-        height:
-            Int
-    ): String {
+        val size =
+            cursor.getLongColumn(
+                MediaStore.Images.Media.SIZE
+            )
 
-        if (
-            width <= 0 ||
-            height <= 0
-        ) {
-            return "unknown"
-        }
+        val added =
+            cursor.getLongColumn(
+                MediaStore.Images.Media.DATE_ADDED
+            )
 
-        val mp =
-            width.toDouble() *
-                height.toDouble() /
-                1_000_000.0
+        val modified =
+            cursor.getLongColumn(
+                MediaStore.Images.Media.DATE_MODIFIED
+            )
 
-        return String.format(
-            Locale.US,
-            "%.2f MP",
-            mp
+        val path =
+            cursor.getStringColumn(
+                MediaStore.Images.Media.RELATIVE_PATH
+            )
+
+        val width =
+            cursor.getIntColumn(
+                MediaStore.Images.Media.WIDTH
+            )
+
+        val height =
+            cursor.getIntColumn(
+                MediaStore.Images.Media.HEIGHT
+            )
+
+        val itemUri =
+            ContentUris.withAppendedId(
+                baseUri,
+                id
+            )
+
+        append("")
+        append("IMAGE ENTRY #$number")
+        append("------------------------------")
+
+        append("ID = $id")
+        append("Name = $name")
+        append("MIME = $mime")
+        append("Size bytes = $size")
+        append("Size MB = ${mb(size)}")
+
+        append(
+            "Dimensions = $width x $height"
         )
+
+        append("Relative path = $path")
+
+        append(
+            "Date added = ${
+                formatSeconds(
+                    added
+                )
+            }"
+        )
+
+        append(
+            "Date modified = ${
+                formatSeconds(
+                    modified
+                )
+            }"
+        )
+
+        append("Content URI = $itemUri")
     }
 
-    private fun formatMb(
-        bytes:
-            Long
+    // ============================================================
+    // FILES COLLECTION
+    // ============================================================
+
+    private fun scanFilesCollection(): Int {
+
+        append("")
+        append("------------------------------")
+        append("Files COLLECTION")
+        append("------------------------------")
+
+        val uri =
+            MediaStore.Files.getContentUri(
+                "external"
+            )
+
+        val projection =
+            arrayOf(
+                MediaStore.Files.FileColumns._ID,
+                MediaStore.Files.FileColumns.DISPLAY_NAME,
+                MediaStore.Files.FileColumns.MIME_TYPE,
+                MediaStore.Files.FileColumns.SIZE,
+                MediaStore.Files.FileColumns.DATE_ADDED,
+                MediaStore.Files.FileColumns.DATE_MODIFIED,
+                MediaStore.Files.FileColumns.RELATIVE_PATH,
+                MediaStore.Files.FileColumns.MEDIA_TYPE
+            )
+
+        val baselineSeconds =
+            (baselineMillis / 1000L) - 5L
+
+        val selection =
+            "${MediaStore.Files.FileColumns.DATE_ADDED} >= ?"
+
+        val selectionArgs =
+            arrayOf(
+                baselineSeconds.toString()
+            )
+
+        val sortOrder =
+            "${MediaStore.Files.FileColumns.DATE_ADDED} DESC"
+
+        var count = 0
+
+        try {
+
+            contentResolver.query(
+                uri,
+                projection,
+                selection,
+                selectionArgs,
+                sortOrder
+            )?.use { cursor ->
+
+                while (cursor.moveToNext()) {
+
+                    count++
+
+                    dumpFileRow(
+                        cursor,
+                        uri,
+                        count
+                    )
+                }
+            }
+
+        } catch (e: Exception) {
+
+            append("")
+            append("Files query ERROR:")
+            append(
+                "${e.javaClass.simpleName}: ${e.message}"
+            )
+        }
+
+        append("")
+        append("Files entries = $count")
+
+        return count
+    }
+
+    private fun dumpFileRow(
+        cursor: Cursor,
+        baseUri: Uri,
+        number: Int
+    ) {
+
+        val id =
+            cursor.getLongColumn(
+                MediaStore.Files.FileColumns._ID
+            )
+
+        val name =
+            cursor.getStringColumn(
+                MediaStore.Files.FileColumns.DISPLAY_NAME
+            )
+
+        val mime =
+            cursor.getStringColumn(
+                MediaStore.Files.FileColumns.MIME_TYPE
+            )
+
+        val size =
+            cursor.getLongColumn(
+                MediaStore.Files.FileColumns.SIZE
+            )
+
+        val added =
+            cursor.getLongColumn(
+                MediaStore.Files.FileColumns.DATE_ADDED
+            )
+
+        val modified =
+            cursor.getLongColumn(
+                MediaStore.Files.FileColumns.DATE_MODIFIED
+            )
+
+        val path =
+            cursor.getStringColumn(
+                MediaStore.Files.FileColumns.RELATIVE_PATH
+            )
+
+        val mediaType =
+            cursor.getIntColumn(
+                MediaStore.Files.FileColumns.MEDIA_TYPE
+            )
+
+        val itemUri =
+            ContentUris.withAppendedId(
+                baseUri,
+                id
+            )
+
+        append("")
+        append("FILE ENTRY #$number")
+        append("------------------------------")
+
+        append("ID = $id")
+        append("Name = $name")
+        append("MIME = $mime")
+        append("Media type = $mediaType")
+        append("Size bytes = $size")
+        append("Size MB = ${mb(size)}")
+        append("Relative path = $path")
+
+        append(
+            "Date added = ${
+                formatSeconds(
+                    added
+                )
+            }"
+        )
+
+        append(
+            "Date modified = ${
+                formatSeconds(
+                    modified
+                )
+            }"
+        )
+
+        append("Content URI = $itemUri")
+
+        val lower =
+            name.lowercase(Locale.US)
+
+        if (
+            lower.endsWith(".dng") ||
+            lower.endsWith(".raw") ||
+            lower.endsWith(".bin") ||
+            lower.endsWith(".heic") ||
+            lower.endsWith(".heif")
+        ) {
+
+            append("")
+            append("*** INTERESTING FILE TYPE ***")
+        }
+    }
+
+    // ============================================================
+    // CURSOR HELPERS
+    // ============================================================
+
+    private fun Cursor.getStringColumn(
+        name: String
     ): String {
 
-        if (bytes < 0) {
-            return "unknown"
+        val index =
+            getColumnIndex(name)
+
+        if (index < 0 || isNull(index)) {
+            return "null"
         }
+
+        return getString(index)
+    }
+
+    private fun Cursor.getLongColumn(
+        name: String
+    ): Long {
+
+        val index =
+            getColumnIndex(name)
+
+        if (index < 0 || isNull(index)) {
+            return 0L
+        }
+
+        return getLong(index)
+    }
+
+    private fun Cursor.getIntColumn(
+        name: String
+    ): Int {
+
+        val index =
+            getColumnIndex(name)
+
+        if (index < 0 || isNull(index)) {
+            return 0
+        }
+
+        return getInt(index)
+    }
+
+    // ============================================================
+    // UTILITIES
+    // ============================================================
+
+    private fun append(text: String) {
+
+        runOnUiThread {
+
+            outputText.append(text)
+            outputText.append("\n")
+        }
+    }
+
+    private fun formatTime(
+        millis: Long
+    ): String {
+
+        return try {
+
+            SimpleDateFormat(
+                "yyyy-MM-dd HH:mm:ss.SSS",
+                Locale.US
+            ).format(
+                Date(millis)
+            )
+
+        } catch (e: Exception) {
+
+            millis.toString()
+        }
+    }
+
+    private fun formatSeconds(
+        seconds: Long
+    ): String {
+
+        if (seconds <= 0) {
+            return "0"
+        }
+
+        return "$seconds / ${
+            formatTime(
+                seconds * 1000L
+            )
+        }"
+    }
+
+    private fun mb(
+        bytes: Long
+    ): String {
 
         return String.format(
             Locale.US,
-            "%.2f MB",
-            bytes /
+            "%.2f",
+            bytes.toDouble() /
                 1024.0 /
                 1024.0
         )
     }
 
-    // =========================================================
-    // LOG
-    // =========================================================
+    private fun copyOutput() {
 
-    private fun log(
-        text:
-            String
-    ) {
+        val clipboard =
+            getSystemService(
+                CLIPBOARD_SERVICE
+            ) as android.content.ClipboardManager
 
-        runOnUiThread {
-
-            output.append(
-                text
+        val clip =
+            android.content.ClipData.newPlainText(
+                "Vivo Camera Probe Output",
+                outputText.text.toString()
             )
 
-            output.append(
-                "\n"
-            )
-        }
+        clipboard.setPrimaryClip(clip)
+
+        append("")
+        append("OUTPUT COPIED TO CLIPBOARD")
     }
 }
