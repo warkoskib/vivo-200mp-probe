@@ -1,47 +1,266 @@
 package com.example.vivo200mpprobe
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.ImageFormat
-import android.hardware.camera2.CameraCharacteristics
-import android.hardware.camera2.CameraMetadata
-import android.hardware.camera2.CameraManager
-import android.hardware.camera2.CaptureRequest
-import android.hardware.camera2.params.StreamConfigurationMap
+import android.hardware.camera2.*
+import android.hardware.camera2.params.OutputConfiguration
+import android.hardware.camera2.params.SessionConfiguration
+import android.media.Image
+import android.media.ImageReader
 import android.os.Build
 import android.os.Bundle
-import android.util.Size
+import android.os.Environment
+import android.os.Handler
+import android.os.HandlerThread
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import java.io.File
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
+import java.util.concurrent.Executor
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var output: TextView
+    companion object {
+
+        private const val CAMERA_ID = "3"
+
+        private const val WIDTH = 4080
+        private const val HEIGHT = 3072
+
+        private const val CAMERA_PERMISSION_REQUEST = 1001
+
+        private const val MODE_HW = 1
+        private const val MODE_SW_RAW16 = 2
+        private const val MODE_FULL_SIZE = 3
+    }
+
     private lateinit var cameraManager: CameraManager
+
+    private lateinit var cameraThread: HandlerThread
+    private lateinit var cameraHandler: Handler
+
+    private var cameraDevice: CameraDevice? = null
+    private var captureSession: CameraCaptureSession? = null
+    private var rawReader: ImageReader? = null
+
+    private lateinit var output: TextView
+
+    private lateinit var hwButton: Button
+    private lateinit var swRaw16Button: Button
+    private lateinit var fullSizeButton: Button
+    private lateinit var captureButton: Button
+
+    private var activeMode = 0
+
+    // =========================================================
+    // SESSION KEYS
+    // =========================================================
+
+    private val ultraHighResolutionKey =
+        CaptureRequest.Key(
+            "vivo.control.ultra_highresolution",
+            Int::class.javaObjectType
+        )
+
+    private val portraitHighResolutionKey =
+        CaptureRequest.Key(
+            "vivo.control.portrait_high_resolution",
+            Byte::class.javaObjectType
+        )
+
+    private val aiHighResolutionKey =
+        CaptureRequest.Key(
+            "vivo.control.ai_highresolution",
+            Int::class.javaObjectType
+        )
+
+    private val forceSensorModeKey =
+        CaptureRequest.Key(
+            "vivo.control.forceSensorMode",
+            Int::class.javaObjectType
+        )
+
+    private val engineerRemosaicModeKey =
+        CaptureRequest.Key(
+            "vivo.control.EngineerRemosaicMode",
+            Int::class.javaObjectType
+        )
+
+    private val advanceFullsizeKey =
+        CaptureRequest.Key(
+            "vivo.control.advance_fullsize",
+            Int::class.javaObjectType
+        )
+
+    private val cameraScenarioKey =
+        CaptureRequest.Key(
+            "com.mediatek.seamlessfeature.cameraScenario",
+            Int::class.javaObjectType
+        )
+
+    private val sensorScenarioKey =
+        CaptureRequest.Key(
+            "com.mediatek.seamlessfeature.sensorScenario",
+            Int::class.javaObjectType
+        )
+
+    private val sensorScenarioCustomHintKey =
+        CaptureRequest.Key(
+            "com.mediatek.seamlessfeature.sensorScenarioCustomHint",
+            Int::class.javaObjectType
+        )
+
+    private val streamsUsageKey =
+        CaptureRequest.Key(
+            "vivo.control.streamsUsage",
+            IntArray::class.java
+        )
+
+    private val vcfStreamTypeKey =
+        CaptureRequest.Key(
+            "vivo.control.vcfStreamType",
+            IntArray::class.java
+        )
+
+    private val proRawKey =
+        CaptureRequest.Key(
+            "vivo.control.is_ProRaw_on",
+            Int::class.javaObjectType
+        )
+
+    // =========================================================
+    // CAPTURE KEYS
+    // =========================================================
+
+    private val real200mpKey =
+        CaptureRequest.Key(
+            "vivo.control.real200mp_switch_on",
+            Int::class.javaObjectType
+        )
+
+    private val sensorModeKey =
+        CaptureRequest.Key(
+            "vivo.control.sensorMode",
+            Int::class.javaObjectType
+        )
+
+    private val previewSensorModeKey =
+        CaptureRequest.Key(
+            "vivo.preview.sensorMode",
+            Int::class.javaObjectType
+        )
+
+    private val niceCaptureSensorModeKey =
+        CaptureRequest.Key(
+            "vivo.parameter.niceCaptureSensorMode",
+            Int::class.javaObjectType
+        )
+
+    private val rawCaptureTypeKey =
+        CaptureRequest.Key(
+            "vivo.control.raw_capture_type",
+            Int::class.javaObjectType
+        )
+
+    private val highResolutionDngTypeKey =
+        CaptureRequest.Key(
+            "vivo.parameter.highResolutionDngType",
+            Int::class.javaObjectType
+        )
+
+    private val nativeModeKey =
+        CaptureRequest.Key(
+            "vivo.control.isNativeMode",
+            Int::class.javaObjectType
+        )
+
+    private val seamlessRemosaicKey =
+        CaptureRequest.Key(
+            "vivo.control.seamless.remosaic.enable",
+            Int::class.javaObjectType
+        )
+
+    private val remosaicCapabilityKey =
+        CaptureRequest.Key(
+            "vivo.control.remosaic.capability",
+            Int::class.javaObjectType
+        )
+
+    private val upscaleKey =
+        CaptureRequest.Key(
+            "vivo.control.isUpscale",
+            Int::class.javaObjectType
+        )
+
+    private val isCaptureKey =
+        CaptureRequest.Key(
+            "vivo.control.isCapture",
+            Int::class.javaObjectType
+        )
+
+    private val isSnapshotKey =
+        CaptureRequest.Key(
+            "vivo.control.is_snapshot",
+            Int::class.javaObjectType
+        )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        startCameraThread()
+        buildUi()
+
         cameraManager =
             getSystemService(CAMERA_SERVICE) as CameraManager
 
-        buildUi()
-
-        log("VIVO PHYSICAL / MAX RESOLUTION PROBE")
+        log("VIVO 3-MODE OEM REMOSAIC CLONE PROBE")
         log("====================================")
         log("")
-        log("Device: ${Build.MODEL}")
-        log("Android: ${Build.VERSION.RELEASE}")
-        log("SDK: ${Build.VERSION.SDK_INT}")
+        log("Camera ID: $CAMERA_ID")
+        log("RAW output: $WIDTH x $HEIGHT")
         log("")
-        log("Press RUN PROBE.")
+        log("MODE A - HW REMOSAIC CANDIDATE")
+        log("MODE B - SW RAW16 REMOSAIC CANDIDATE")
+        log("MODE C - FULL SIZE REMOSAIC CANDIDATE")
+        log("")
+        log("All modes use the known-valid RAW stream.")
+        log("We compare HAL-returned metadata.")
+        log("")
+
+        if (
+            ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.CAMERA
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.CAMERA),
+                CAMERA_PERMISSION_REQUEST
+            )
+
+        } else {
+
+            openCamera()
+        }
     }
+
+    // =========================================================
+    // UI
+    // =========================================================
 
     private fun buildUi() {
 
@@ -53,34 +272,76 @@ class MainActivity : AppCompatActivity() {
 
         root.setPadding(
             20,
-            30,
+            25,
             20,
-            30
+            25
         )
 
-        val runButton =
+        hwButton =
             Button(this)
 
-        runButton.text =
-            "RUN PROBE"
+        hwButton.text =
+            "CREATE HW REMOSAIC SESSION"
 
-        runButton.setOnClickListener {
+        hwButton.isEnabled =
+            false
 
-            output.text = ""
-            runButton.isEnabled = false
-
-            Thread {
-                try {
-                    runProbe()
-                } finally {
-                    runOnUiThread {
-                        runButton.isEnabled = true
-                    }
-                }
-            }.start()
+        hwButton.setOnClickListener {
+            createModeSession(
+                MODE_HW
+            )
         }
 
-        root.addView(runButton)
+        root.addView(hwButton)
+
+        swRaw16Button =
+            Button(this)
+
+        swRaw16Button.text =
+            "CREATE SW RAW16 SESSION"
+
+        swRaw16Button.isEnabled =
+            false
+
+        swRaw16Button.setOnClickListener {
+            createModeSession(
+                MODE_SW_RAW16
+            )
+        }
+
+        root.addView(swRaw16Button)
+
+        fullSizeButton =
+            Button(this)
+
+        fullSizeButton.text =
+            "CREATE FULL SIZE SESSION"
+
+        fullSizeButton.isEnabled =
+            false
+
+        fullSizeButton.setOnClickListener {
+            createModeSession(
+                MODE_FULL_SIZE
+            )
+        }
+
+        root.addView(fullSizeButton)
+
+        captureButton =
+            Button(this)
+
+        captureButton.text =
+            "CAPTURE RAW"
+
+        captureButton.isEnabled =
+            false
+
+        captureButton.setOnClickListener {
+            captureCurrentMode()
+        }
+
+        root.addView(captureButton)
 
         val copyButton =
             Button(this)
@@ -90,20 +351,6 @@ class MainActivity : AppCompatActivity() {
 
         copyButton.setOnClickListener {
 
-            val text =
-                output.text.toString()
-
-            if (text.isBlank()) {
-
-                Toast.makeText(
-                    this,
-                    "No output yet.",
-                    Toast.LENGTH_SHORT
-                ).show()
-
-                return@setOnClickListener
-            }
-
             val clipboard =
                 getSystemService(
                     Context.CLIPBOARD_SERVICE
@@ -111,8 +358,8 @@ class MainActivity : AppCompatActivity() {
 
             clipboard.setPrimaryClip(
                 ClipData.newPlainText(
-                    "Vivo Physical Max Resolution Probe",
-                    text
+                    "Vivo 3 Mode Remosaic Probe",
+                    output.text.toString()
                 )
             )
 
@@ -124,6 +371,18 @@ class MainActivity : AppCompatActivity() {
         }
 
         root.addView(copyButton)
+
+        val clearButton =
+            Button(this)
+
+        clearButton.text =
+            "CLEAR"
+
+        clearButton.setOnClickListener {
+            output.text = ""
+        }
+
+        root.addView(clearButton)
 
         val scroll =
             ScrollView(this)
@@ -159,666 +418,1349 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
     }
 
-    private fun runProbe() {
+    // =========================================================
+    // CAMERA
+    // =========================================================
 
-        log("VIVO PHYSICAL / MAX RESOLUTION PROBE")
-        log("====================================")
-        log("")
+    private fun openCamera() {
 
-        try {
-
-            log("==============================")
-            log("PUBLIC CAMERA ID LIST")
-            log("==============================")
-
-            val ids =
-                cameraManager.cameraIdList
-
-            for (id in ids) {
-                log("PUBLIC: $id")
-            }
-
-        } catch (e: Throwable) {
-
-            log(
-                "Public camera enumeration failed:"
-            )
-
-            log(
-                e.toString()
-            )
+        if (
+            ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.CAMERA
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
         }
 
-        for (i in 0..7) {
+        log("OPENING CAMERA 3...")
 
-            val id =
-                i.toString()
+        cameraManager.openCamera(
+            CAMERA_ID,
 
-            log("")
-            log("")
-            log("################################")
-            log("CAMERA ID $id")
-            log("################################")
+            object : CameraDevice.StateCallback() {
 
-            try {
+                override fun onOpened(
+                    camera: CameraDevice
+                ) {
 
-                val chars =
-                    cameraManager
-                        .getCameraCharacteristics(
-                            id
-                        )
+                    cameraDevice =
+                        camera
 
-                log("STATUS: VALID")
+                    log("Camera 3 opened.")
+                    log("Choose a remosaic mode.")
 
-                dumpLogicalMultiCamera(chars)
-                dumpPhysicalIds(chars)
-                dumpPhysicalRequestKeys(chars)
-                dumpPixelModes(chars)
-
-                dumpStandardMap(chars)
-                dumpMaximumResolutionMap(chars)
-
-            } catch (e: Throwable) {
-
-                log(
-                    "STATUS: INVALID / INACCESSIBLE"
-                )
-
-                log(
-                    e.javaClass.simpleName +
-                        ": " +
-                        (e.message ?: "")
-                )
-            }
-        }
-
-        log("")
-        log("")
-        log("==============================")
-        log("PROBE COMPLETE")
-        log("==============================")
-        log("")
-        log("Search the output for:")
-        log("16320")
-        log("12288")
-        log("8160")
-        log("6144")
-        log("MAXIMUM")
-        log("PHYSICAL")
-        log("")
-        log("Press COPY OUTPUT.")
-    }
-
-    private fun dumpLogicalMultiCamera(
-        chars:
-            CameraCharacteristics
-    ) {
-
-        log("")
-        log("==============================")
-        log("LOGICAL MULTI CAMERA")
-        log("==============================")
-
-        val caps =
-            chars.get(
-                CameraCharacteristics
-                    .REQUEST_AVAILABLE_CAPABILITIES
-            ) ?: intArrayOf()
-
-        val logical =
-            caps.contains(
-                CameraCharacteristics
-                    .REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA
-            )
-
-        log(
-            "Logical multi-camera: $logical"
-        )
-
-        log(
-            "Capabilities: ${
-                caps.contentToString()
-            }"
-        )
-    }
-
-    private fun dumpPhysicalIds(
-        chars:
-            CameraCharacteristics
-    ) {
-
-        log("")
-        log("==============================")
-        log("PHYSICAL CAMERA IDS")
-        log("==============================")
-
-        try {
-
-            val ids =
-                chars.physicalCameraIds
-
-            if (ids.isEmpty()) {
-
-                log(
-                    "NONE"
-                )
-
-            } else {
-
-                for (id in ids) {
-                    log(id)
+                    enableModeButtons()
                 }
-            }
 
-        } catch (e: Throwable) {
+                override fun onDisconnected(
+                    camera: CameraDevice
+                ) {
 
-            log(
-                "Physical ID query failed:"
-            )
+                    log("Camera disconnected.")
 
-            log(
-                e.toString()
-            )
-        }
+                    camera.close()
+
+                    cameraDevice =
+                        null
+                }
+
+                override fun onError(
+                    camera: CameraDevice,
+                    error: Int
+                ) {
+
+                    log("CAMERA ERROR: $error")
+
+                    camera.close()
+
+                    cameraDevice =
+                        null
+                }
+            },
+
+            cameraHandler
+        )
     }
 
-    private fun dumpPhysicalRequestKeys(
-        chars:
-            CameraCharacteristics
+    // =========================================================
+    // CREATE MODE SESSION
+    // =========================================================
+
+    private fun createModeSession(
+        mode: Int
     ) {
 
+        val camera =
+            cameraDevice ?: return
+
+        activeMode =
+            mode
+
+        disableButtons()
+
+        closeCurrentSession()
+
         log("")
-        log("==============================")
-        log("PHYSICAL CAMERA REQUEST KEYS")
-        log("==============================")
+        log("")
+        log("################################")
+        log("CREATE ${modeName(mode)} SESSION")
+        log("################################")
+
+        log(
+            "RAW_SENSOR $WIDTH x $HEIGHT"
+        )
 
         try {
 
-            val keys =
-                chars.availablePhysicalCameraRequestKeys
-
-            if (keys == null) {
-
-                log(
-                    "NONE / null"
+            rawReader =
+                ImageReader.newInstance(
+                    WIDTH,
+                    HEIGHT,
+                    ImageFormat.RAW_SENSOR,
+                    2
                 )
 
-                return
-            }
-
-            if (keys.isEmpty()) {
-
-                log(
-                    "EMPTY"
+            rawReader!!
+                .setOnImageAvailableListener(
+                    { reader ->
+                        handleRawImage(
+                            reader
+                        )
+                    },
+                    cameraHandler
                 )
-
-                return
-            }
-
-            for (key in keys) {
-
-                log(
-                    key.name
-                )
-            }
 
         } catch (e: Throwable) {
 
-            log(
-                "Physical request-key query failed:"
-            )
+            log("ImageReader FAILED")
+            log(e.toString())
 
-            log(
-                e.toString()
-            )
-        }
-    }
-
-    private fun dumpPixelModes(
-        chars:
-            CameraCharacteristics
-    ) {
-
-        log("")
-        log("==============================")
-        log("SENSOR PIXEL MODE SUPPORT")
-        log("==============================")
-
-        try {
-
-            val modes =
-                chars.get(
-                    CameraCharacteristics
-                        .SENSOR_INFO_PIXEL_ARRAY_SIZE
-                )
-
-            log(
-                "Standard pixel array: ${
-                    modes?.toString()
-                        ?: "null"
-                }"
-            )
-
-        } catch (_: Throwable) {
-        }
-
-        try {
-
-            val maxArray =
-                chars.get(
-                    CameraCharacteristics
-                        .SENSOR_INFO_PIXEL_ARRAY_SIZE_MAXIMUM_RESOLUTION
-                )
-
-            if (maxArray == null) {
-
-                log(
-                    "Maximum-resolution pixel array: null"
-                )
-
-            } else {
-
-                log(
-                    "Maximum-resolution pixel array:"
-                )
-
-                logSize(
-                    maxArray
-                )
-            }
-
-        } catch (e: Throwable) {
-
-            log(
-                "Maximum pixel-array query error:"
-            )
-
-            log(
-                e.javaClass.simpleName +
-                    ": " +
-                    (e.message ?: "")
-            )
-        }
-    }
-
-    private fun dumpStandardMap(
-        chars:
-            CameraCharacteristics
-    ) {
-
-        log("")
-        log("==============================")
-        log("STANDARD STREAM MAP")
-        log("==============================")
-
-        val map =
-            chars.get(
-                CameraCharacteristics
-                    .SCALER_STREAM_CONFIGURATION_MAP
-            )
-
-        if (map == null) {
-
-            log(
-                "NO STANDARD STREAM MAP"
-            )
+            enableModeButtons()
 
             return
         }
 
-        dumpMap(
-            map,
-            "STANDARD"
-        )
-    }
+        val surface =
+            rawReader!!.surface
 
-    private fun dumpMaximumResolutionMap(
-        chars:
-            CameraCharacteristics
-    ) {
+        val callback =
+            object :
+                CameraCaptureSession.StateCallback() {
 
-        log("")
-        log("==============================")
-        log("MAXIMUM RESOLUTION STREAM MAP")
-        log("==============================")
+                override fun onConfigured(
+                    session:
+                        CameraCaptureSession
+                ) {
+
+                    captureSession =
+                        session
+
+                    log("")
+                    log(
+                        "${modeName(mode)} SESSION CONFIGURED"
+                    )
+
+                    log(
+                        "HAL accepted session."
+                    )
+
+                    runOnUiThread {
+
+                        captureButton.text =
+                            "CAPTURE ${modeName(mode)}"
+
+                        captureButton.isEnabled =
+                            true
+
+                        hwButton.isEnabled =
+                            true
+
+                        swRaw16Button.isEnabled =
+                            true
+
+                        fullSizeButton.isEnabled =
+                            true
+                    }
+                }
+
+                override fun onConfigureFailed(
+                    session:
+                        CameraCaptureSession
+                ) {
+
+                    log("")
+                    log(
+                        "${modeName(mode)} SESSION FAILED"
+                    )
+
+                    enableModeButtons()
+                }
+            }
 
         try {
 
-            val map =
-                chars.get(
-                    CameraCharacteristics
-                        .SCALER_STREAM_CONFIGURATION_MAP_MAXIMUM_RESOLUTION
+            if (
+                Build.VERSION.SDK_INT >=
+                Build.VERSION_CODES.P
+            ) {
+
+                val executor =
+                    Executor { runnable ->
+                        cameraHandler.post(
+                            runnable
+                        )
+                    }
+
+                val config =
+                    SessionConfiguration(
+                        SessionConfiguration.SESSION_REGULAR,
+                        listOf(
+                            OutputConfiguration(
+                                surface
+                            )
+                        ),
+                        executor,
+                        callback
+                    )
+
+                val sessionRequest =
+                    camera.createCaptureRequest(
+                        CameraDevice.TEMPLATE_STILL_CAPTURE
+                    )
+
+                sessionRequest.addTarget(
+                    surface
                 )
 
-            if (map == null) {
+                log("")
+                log("SESSION PARAMETERS")
+                log("------------------")
 
-                log(
-                    "NOT EXPOSED / null"
+                applyModeParameters(
+                    sessionRequest,
+                    mode,
+                    true
                 )
 
-                return
+                config.setSessionParameters(
+                    sessionRequest.build()
+                )
+
+                camera.createCaptureSession(
+                    config
+                )
+
+            } else {
+
+                @Suppress("DEPRECATION")
+                camera.createCaptureSession(
+                    listOf(surface),
+                    callback,
+                    cameraHandler
+                )
             }
-
-            dumpMap(
-                map,
-                "MAXIMUM"
-            )
 
         } catch (e: Throwable) {
 
-            log(
-                "MAXIMUM RESOLUTION MAP QUERY FAILED"
-            )
+            log("")
+            log("SESSION EXCEPTION")
 
             log(
                 e.javaClass.simpleName +
                     ": " +
                     (e.message ?: "")
             )
+
+            enableModeButtons()
         }
     }
 
-    private fun dumpMap(
-        map:
-            StreamConfigurationMap,
-        label:
-            String
+    // =========================================================
+    // MODE PRESETS
+    // =========================================================
+
+    private fun applyModeParameters(
+        builder: CaptureRequest.Builder,
+        mode: Int,
+        sessionPhase: Boolean
     ) {
 
-        val formats =
-            try {
-                map.outputFormats
-            } catch (e: Throwable) {
+        /*
+         * COMMON OEM HIGH-RES CONTROLS
+         */
 
-                log(
-                    "$label outputFormats error:"
+        setInt(
+            builder,
+            ultraHighResolutionKey,
+            1,
+            "ultra_highresolution"
+        )
+
+        setByte(
+            builder,
+            portraitHighResolutionKey,
+            1,
+            "portrait_high_resolution"
+        )
+
+        setInt(
+            builder,
+            aiHighResolutionKey,
+            0,
+            "ai_highresolution"
+        )
+
+        setInt(
+            builder,
+            cameraScenarioKey,
+            3,
+            "cameraScenario"
+        )
+
+        setInt(
+            builder,
+            sensorScenarioKey,
+            3,
+            "sensorScenario"
+        )
+
+        setIntArray(
+            builder,
+            streamsUsageKey,
+            intArrayOf(
+                2,
+                1,
+                0
+            ),
+            "streamsUsage"
+        )
+
+        setIntArray(
+            builder,
+            vcfStreamTypeKey,
+            intArrayOf(
+                0,
+                1
+            ),
+            "vcfStreamType"
+        )
+
+        when (mode) {
+
+            // =================================================
+            // MODE A
+            // Hardware-remosaic candidate
+            // =================================================
+
+            MODE_HW -> {
+
+                setInt(
+                    builder,
+                    forceSensorModeKey,
+                    0,
+                    "forceSensorMode"
                 )
 
-                log(
-                    e.toString()
+                setInt(
+                    builder,
+                    engineerRemosaicModeKey,
+                    1,
+                    "EngineerRemosaicMode"
                 )
 
+                setInt(
+                    builder,
+                    advanceFullsizeKey,
+                    0,
+                    "advance_fullsize"
+                )
+
+                setInt(
+                    builder,
+                    sensorScenarioCustomHintKey,
+                    1,
+                    "sensorScenarioCustomHint"
+                )
+
+                setInt(
+                    builder,
+                    proRawKey,
+                    0,
+                    "is_ProRaw_on"
+                )
+            }
+
+            // =================================================
+            // MODE B
+            // RAW16 software-remosaic candidate
+            // =================================================
+
+            MODE_SW_RAW16 -> {
+
+                setInt(
+                    builder,
+                    forceSensorModeKey,
+                    0,
+                    "forceSensorMode"
+                )
+
+                setInt(
+                    builder,
+                    engineerRemosaicModeKey,
+                    1,
+                    "EngineerRemosaicMode"
+                )
+
+                setInt(
+                    builder,
+                    advanceFullsizeKey,
+                    0,
+                    "advance_fullsize"
+                )
+
+                setInt(
+                    builder,
+                    sensorScenarioCustomHintKey,
+                    1,
+                    "sensorScenarioCustomHint"
+                )
+
+                setInt(
+                    builder,
+                    proRawKey,
+                    1,
+                    "is_ProRaw_on"
+                )
+            }
+
+            // =================================================
+            // MODE C
+            // Full-size OEM candidate
+            // =================================================
+
+            MODE_FULL_SIZE -> {
+
+                setInt(
+                    builder,
+                    forceSensorModeKey,
+                    0,
+                    "forceSensorMode"
+                )
+
+                setInt(
+                    builder,
+                    engineerRemosaicModeKey,
+                    1,
+                    "EngineerRemosaicMode"
+                )
+
+                setInt(
+                    builder,
+                    advanceFullsizeKey,
+                    1,
+                    "advance_fullsize"
+                )
+
+                setInt(
+                    builder,
+                    sensorScenarioCustomHintKey,
+                    1,
+                    "sensorScenarioCustomHint"
+                )
+
+                setInt(
+                    builder,
+                    proRawKey,
+                    1,
+                    "is_ProRaw_on"
+                )
+            }
+        }
+
+        if (!sessionPhase) {
+
+            log("")
+            log("CAPTURE-ONLY PARAMETERS")
+            log("-----------------------")
+
+            setInt(
+                builder,
+                real200mpKey,
+                1,
+                "real200mp_switch_on"
+            )
+
+            setInt(
+                builder,
+                sensorModeKey,
+                0,
+                "sensorMode"
+            )
+
+            setInt(
+                builder,
+                previewSensorModeKey,
+                0,
+                "preview.sensorMode"
+            )
+
+            setInt(
+                builder,
+                niceCaptureSensorModeKey,
+                0,
+                "niceCaptureSensorMode"
+            )
+
+            setInt(
+                builder,
+                nativeModeKey,
+                1,
+                "isNativeMode"
+            )
+
+            setInt(
+                builder,
+                seamlessRemosaicKey,
+                1,
+                "seamless.remosaic.enable"
+            )
+
+            setInt(
+                builder,
+                remosaicCapabilityKey,
+                1,
+                "remosaic.capability"
+            )
+
+            setInt(
+                builder,
+                isCaptureKey,
+                1,
+                "isCapture"
+            )
+
+            setInt(
+                builder,
+                isSnapshotKey,
+                1,
+                "is_snapshot"
+            )
+
+            when (mode) {
+
+                MODE_HW -> {
+
+                    setInt(
+                        builder,
+                        rawCaptureTypeKey,
+                        0,
+                        "raw_capture_type"
+                    )
+
+                    setInt(
+                        builder,
+                        highResolutionDngTypeKey,
+                        0,
+                        "highResolutionDngType"
+                    )
+
+                    setInt(
+                        builder,
+                        upscaleKey,
+                        0,
+                        "isUpscale"
+                    )
+                }
+
+                MODE_SW_RAW16 -> {
+
+                    /*
+                     * The HAL previously returned 32 while
+                     * the OEM-remosaic path was active.
+                     * Test 32 explicitly here.
+                     */
+
+                    setInt(
+                        builder,
+                        rawCaptureTypeKey,
+                        32,
+                        "raw_capture_type"
+                    )
+
+                    setInt(
+                        builder,
+                        highResolutionDngTypeKey,
+                        1,
+                        "highResolutionDngType"
+                    )
+
+                    setInt(
+                        builder,
+                        upscaleKey,
+                        0,
+                        "isUpscale"
+                    )
+                }
+
+                MODE_FULL_SIZE -> {
+
+                    setInt(
+                        builder,
+                        rawCaptureTypeKey,
+                        32,
+                        "raw_capture_type"
+                    )
+
+                    setInt(
+                        builder,
+                        highResolutionDngTypeKey,
+                        1,
+                        "highResolutionDngType"
+                    )
+
+                    setInt(
+                        builder,
+                        upscaleKey,
+                        1,
+                        "isUpscale"
+                    )
+                }
+            }
+        }
+    }
+
+    // =========================================================
+    // CAPTURE
+    // =========================================================
+
+    private fun captureCurrentMode() {
+
+        val camera =
+            cameraDevice ?: return
+
+        val session =
+            captureSession ?: return
+
+        val reader =
+            rawReader ?: return
+
+        captureButton.isEnabled =
+            false
+
+        log("")
+        log("")
+        log("################################")
+        log("${modeName(activeMode)} CAPTURE")
+        log("################################")
+
+        try {
+
+            val builder =
+                camera.createCaptureRequest(
+                    CameraDevice.TEMPLATE_STILL_CAPTURE
+                )
+
+            builder.addTarget(
+                reader.surface
+            )
+
+            builder.set(
+                CaptureRequest.CONTROL_MODE,
+                CameraMetadata.CONTROL_MODE_AUTO
+            )
+
+            builder.set(
+                CaptureRequest.CONTROL_AE_MODE,
+                CaptureRequest.CONTROL_AE_MODE_ON
+            )
+
+            applyModeParameters(
+                builder,
+                activeMode,
+                false
+            )
+
+            session.capture(
+                builder.build(),
+
+                object :
+                    CameraCaptureSession.CaptureCallback() {
+
+                    override fun onCaptureStarted(
+                        session:
+                            CameraCaptureSession,
+                        request:
+                            CaptureRequest,
+                        timestamp:
+                            Long,
+                        frameNumber:
+                            Long
+                    ) {
+
+                        log("")
+                        log(
+                            "Capture started."
+                        )
+
+                        log(
+                            "Frame: $frameNumber"
+                        )
+                    }
+
+                    override fun onCaptureCompleted(
+                        session:
+                            CameraCaptureSession,
+                        request:
+                            CaptureRequest,
+                        result:
+                            TotalCaptureResult
+                    ) {
+
+                        log("")
+                        log(
+                            "Capture completed."
+                        )
+
+                        dumpResult(
+                            result
+                        )
+
+                        runOnUiThread {
+                            captureButton.isEnabled =
+                                true
+                        }
+                    }
+
+                    override fun onCaptureFailed(
+                        session:
+                            CameraCaptureSession,
+                        request:
+                            CaptureRequest,
+                        failure:
+                            CaptureFailure
+                    ) {
+
+                        log("")
+                        log(
+                            "CAPTURE FAILED"
+                        )
+
+                        log(
+                            "Reason: ${failure.reason}"
+                        )
+
+                        runOnUiThread {
+                            captureButton.isEnabled =
+                                true
+                        }
+                    }
+                },
+
+                cameraHandler
+            )
+
+        } catch (e: Throwable) {
+
+            log("")
+            log("CAPTURE EXCEPTION")
+
+            log(
+                e.javaClass.simpleName +
+                    ": " +
+                    (e.message ?: "")
+            )
+
+            captureButton.isEnabled =
+                true
+        }
+    }
+
+    // =========================================================
+    // RAW BUFFER
+    // =========================================================
+
+    private fun handleRawImage(
+        reader: ImageReader
+    ) {
+
+        var image:
+            Image? =
+            null
+
+        try {
+
+            image =
+                reader.acquireNextImage()
+
+            if (image == null) {
                 return
             }
 
-        log(
-            "$label output format count: ${
-                formats.size
-            }"
-        )
-
-        for (format in formats) {
-
             log("")
-            log("--------------------------------")
-            log(
-                "$label FORMAT $format = ${
-                    formatName(format)
-                }"
-            )
-            log("--------------------------------")
-
-            val sizes =
-                try {
-                    map.getOutputSizes(
-                        format
-                    )
-                } catch (_: Throwable) {
-                    null
-                }
-
-            if (sizes == null) {
-
-                log(
-                    "NO SIZES"
-                )
-
-                continue
-            }
+            log("")
+            log("==============================")
+            log("RAW BUFFER RECEIVED")
+            log("==============================")
 
             log(
-                "Count: ${sizes.size}"
+                "Mode: ${modeName(activeMode)}"
             )
 
-            val sorted =
-                sizes.sortedByDescending {
-                    pixels(it)
-                }
+            log(
+                "Image: ${image.width} x ${image.height}"
+            )
 
-            for (size in sorted) {
+            log(
+                "Format: ${image.format}"
+            )
 
-                val marker =
-                    markerForSize(
-                        size
-                    )
+            log(
+                "Planes: ${image.planes.size}"
+            )
 
-                log(
-                    size.width.toString() +
-                        " x " +
-                        size.height.toString() +
-                        " = " +
-                        String.format(
-                            Locale.US,
-                            "%.2f MP",
-                            pixels(size) /
-                                1_000_000.0
-                        ) +
-                        marker
-                )
-            }
+            var total =
+                0L
 
-            if (sorted.isNotEmpty()) {
+            image.planes.forEachIndexed {
+                    index,
+                    plane ->
+
+                val count =
+                    plane.buffer.remaining()
+
+                total +=
+                    count.toLong()
 
                 log("")
                 log(
-                    "LARGEST:"
+                    "Plane $index"
                 )
 
-                logSize(
-                    sorted.first()
+                log(
+                    "Bytes: $count"
+                )
+
+                log(
+                    "RowStride: ${plane.rowStride}"
+                )
+
+                log(
+                    "PixelStride: ${plane.pixelStride}"
+                )
+            }
+
+            log("")
+            log(
+                "TOTAL BYTES: $total"
+            )
+
+            log(
+                String.format(
+                    Locale.US,
+                    "%.2f MB",
+                    total /
+                        1024.0 /
+                        1024.0
+                )
+            )
+
+            saveRaw(
+                image
+            )
+
+        } catch (e: Throwable) {
+
+            log(
+                "RAW READ ERROR: $e"
+            )
+
+        } finally {
+
+            try {
+                image?.close()
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    private fun saveRaw(
+        image: Image
+    ) {
+
+        try {
+
+            val directory =
+                getExternalFilesDir(
+                    Environment.DIRECTORY_PICTURES
+                ) ?: return
+
+            directory.mkdirs()
+
+            val timestamp =
+                SimpleDateFormat(
+                    "yyyyMMdd_HHmmss_SSS",
+                    Locale.US
+                ).format(
+                    Date()
+                )
+
+            val safeName =
+                modeName(activeMode)
+                    .replace(
+                        " ",
+                        "_"
+                    )
+
+            val file =
+                File(
+                    directory,
+                    "${safeName}_" +
+                        "${image.width}x${image.height}_" +
+                        "$timestamp.raw"
+                )
+
+            FileOutputStream(
+                file
+            ).use {
+                    output ->
+
+                image.planes.forEach {
+                        plane ->
+
+                    val buffer =
+                        plane.buffer
+                            .duplicate()
+
+                    val bytes =
+                        ByteArray(
+                            buffer.remaining()
+                        )
+
+                    buffer.get(
+                        bytes
+                    )
+
+                    output.write(
+                        bytes
+                    )
+                }
+            }
+
+            log("")
+            log("RAW SAVED:")
+
+            log(
+                file.absolutePath
+            )
+
+        } catch (e: Throwable) {
+
+            log(
+                "SAVE ERROR: $e"
+            )
+        }
+    }
+
+    // =========================================================
+    // RESULT DUMP
+    // =========================================================
+
+    private fun dumpResult(
+        result:
+            TotalCaptureResult
+    ) {
+
+        log("")
+        log("==============================")
+        log("OEM / SENSOR RESULT")
+        log("==============================")
+
+        val terms =
+            listOf(
+                "remosaic",
+                "200mp",
+                "raw_capture",
+                "sensor",
+                "fullsize",
+                "highresolution",
+                "proraw",
+                "native",
+                "upscale",
+                "scenario",
+                "currentmode",
+                "scenemode",
+                "tuning",
+                "requestleft",
+                "stream",
+                "vcf"
+            )
+
+        var count =
+            0
+
+        for (key in result.keys) {
+
+            val lower =
+                key.name.lowercase(
+                    Locale.US
+                )
+
+            if (
+                terms.any {
+                    lower.contains(it)
+                }
+            ) {
+
+                count++
+
+                val value =
+                    try {
+                        result.get(key)
+                    } catch (_: Throwable) {
+                        "<READ ERROR>"
+                    }
+
+                log("")
+                log(
+                    key.name
+                )
+
+                log(
+                    formatValue(value)
                 )
             }
         }
 
         log("")
         log(
-            "$label HIGH RESOLUTION OUTPUTS"
+            "Matching result keys: $count"
         )
 
-        val importantFormats =
-            listOf(
-                ImageFormat.RAW_SENSOR,
-                ImageFormat.RAW10,
-                ImageFormat.RAW12,
-                ImageFormat.RAW_PRIVATE,
-                ImageFormat.JPEG,
-                ImageFormat.YUV_420_888,
-                ImageFormat.PRIVATE,
-                ImageFormat.HEIC
-            )
+        log("")
+        log("==============================")
+        log("IMPORTANT COMPARISON TARGETS")
+        log("==============================")
 
-        for (format in importantFormats) {
+        log(
+            "Watch for differences in:"
+        )
 
-            log("")
-            log(
-                "${formatName(format)}:"
-            )
+        log(
+            "raw_capture_type"
+        )
 
-            try {
+        log(
+            "currentModeEx"
+        )
 
-                val sizes =
-                    map.getHighResolutionOutputSizes(
-                        format
-                    )
+        log(
+            "sceneMode"
+        )
 
-                if (sizes == null) {
+        log(
+            "hintForIspTuning"
+        )
 
-                    log(
-                        "  NONE"
-                    )
+        log(
+            "hintForCustomTuning"
+        )
 
-                    continue
-                }
+        log(
+            "RequestLeftInThisSnapshot"
+        )
 
-                if (sizes.isEmpty()) {
+        log(
+            "sensorMode"
+        )
 
-                    log(
-                        "  EMPTY"
-                    )
-
-                    continue
-                }
-
-                for (
-                    size in
-                    sizes.sortedByDescending {
-                        pixels(it)
-                    }
-                ) {
-
-                    log(
-                        "  ${size.width} x ${size.height}" +
-                            markerForSize(size)
-                    )
-                }
-
-            } catch (e: Throwable) {
-
-                log(
-                    "  query error: ${
-                        e.javaClass.simpleName
-                    }"
-                )
-            }
-        }
+        log(
+            "niceCaptureSensorMode"
+        )
     }
 
-    private fun markerForSize(
-        size:
-            Size
-    ): String {
+    // =========================================================
+    // SETTERS
+    // =========================================================
 
-        val mp =
-            pixels(size) /
-                1_000_000.0
-
-        return when {
-
-            size.width == 16320 &&
-                size.height == 12288 ->
-                "  <<< EXACT 200 MP TARGET"
-
-            size.width == 12288 &&
-                size.height == 16320 ->
-                "  <<< EXACT 200 MP ROTATED"
-
-            size.width == 8160 &&
-                size.height == 6144 ->
-                "  <<< 50 MP TARGET"
-
-            size.width == 8192 &&
-                size.height == 6144 ->
-                "  <<< ~50 MP TARGET"
-
-            mp >= 150.0 ->
-                "  <<< 150+ MP"
-
-            mp >= 40.0 ->
-                "  <<< 40+ MP"
-
-            else ->
-                ""
-        }
-    }
-
-    private fun pixels(
-        size:
-            Size
-    ): Double {
-
-        return size.width.toDouble() *
-            size.height.toDouble()
-    }
-
-    private fun logSize(
-        size:
-            Size
+    private fun setInt(
+        builder:
+            CaptureRequest.Builder,
+        key:
+            CaptureRequest.Key<Int>,
+        value:
+            Int,
+        name:
+            String
     ) {
 
-        log(
-            "${size.width} x ${size.height}"
-        )
+        try {
 
-        log(
-            String.format(
-                Locale.US,
-                "%.2f MP",
-                pixels(size) /
-                    1_000_000.0
-            ) +
-                markerForSize(size)
-        )
+            builder.set(
+                key,
+                value
+            )
+
+            log(
+                "OK $name = $value"
+            )
+
+        } catch (e: Throwable) {
+
+            log(
+                "FAIL $name: " +
+                    e.javaClass.simpleName
+            )
+        }
     }
 
-    private fun formatName(
-        format:
-            Int
+    private fun setByte(
+        builder:
+            CaptureRequest.Builder,
+        key:
+            CaptureRequest.Key<Byte>,
+        value:
+            Int,
+        name:
+            String
+    ) {
+
+        try {
+
+            builder.set(
+                key,
+                value.toByte()
+            )
+
+            log(
+                "OK $name = $value"
+            )
+
+        } catch (e: Throwable) {
+
+            log(
+                "FAIL $name: " +
+                    e.javaClass.simpleName
+            )
+        }
+    }
+
+    private fun setIntArray(
+        builder:
+            CaptureRequest.Builder,
+        key:
+            CaptureRequest.Key<IntArray>,
+        value:
+            IntArray,
+        name:
+            String
+    ) {
+
+        try {
+
+            builder.set(
+                key,
+                value
+            )
+
+            log(
+                "OK $name = " +
+                    value.contentToString()
+            )
+
+        } catch (e: Throwable) {
+
+            log(
+                "FAIL $name: " +
+                    e.javaClass.simpleName
+            )
+        }
+    }
+
+    // =========================================================
+    // HELPERS
+    // =========================================================
+
+    private fun modeName(
+        mode: Int
     ): String {
 
-        return when (format) {
+        return when (mode) {
 
-            ImageFormat.RAW_SENSOR ->
-                "RAW_SENSOR"
+            MODE_HW ->
+                "HW REMOSAIC"
 
-            ImageFormat.RAW10 ->
-                "RAW10"
+            MODE_SW_RAW16 ->
+                "SW RAW16 REMOSAIC"
 
-            ImageFormat.RAW12 ->
-                "RAW12"
-
-            ImageFormat.RAW_PRIVATE ->
-                "RAW_PRIVATE"
-
-            ImageFormat.JPEG ->
-                "JPEG"
-
-            ImageFormat.YUV_420_888 ->
-                "YUV_420_888"
-
-            ImageFormat.PRIVATE ->
-                "PRIVATE"
-
-            ImageFormat.HEIC ->
-                "HEIC"
-
-            54 ->
-                "YCBCR_P010 / 10-BIT YUV"
-
-            4101 ->
-                "JPEG_R / HDR JPEG"
-
-            842094169 ->
-                "YV12"
+            MODE_FULL_SIZE ->
+                "FULL SIZE REMOSAIC"
 
             else ->
-                "UNKNOWN / VENDOR"
+                "UNKNOWN"
         }
+    }
+
+    private fun formatValue(
+        value: Any?
+    ): String {
+
+        if (value == null) {
+            return "null"
+        }
+
+        return when (value) {
+
+            is IntArray ->
+                value.contentToString()
+
+            is LongArray ->
+                value.contentToString()
+
+            is ByteArray ->
+                value.contentToString()
+
+            is FloatArray ->
+                value.contentToString()
+
+            is DoubleArray ->
+                value.contentToString()
+
+            is BooleanArray ->
+                value.contentToString()
+
+            else ->
+                value.toString()
+        }
+    }
+
+    private fun closeCurrentSession() {
+
+        try {
+            captureSession?.close()
+        } catch (_: Throwable) {
+        }
+
+        captureSession =
+            null
+
+        try {
+            rawReader?.close()
+        } catch (_: Throwable) {
+        }
+
+        rawReader =
+            null
+
+        captureButton.isEnabled =
+            false
+    }
+
+    private fun disableButtons() {
+
+        runOnUiThread {
+
+            hwButton.isEnabled =
+                false
+
+            swRaw16Button.isEnabled =
+                false
+
+            fullSizeButton.isEnabled =
+                false
+
+            captureButton.isEnabled =
+                false
+        }
+    }
+
+    private fun enableModeButtons() {
+
+        runOnUiThread {
+
+            hwButton.isEnabled =
+                true
+
+            swRaw16Button.isEnabled =
+                true
+
+            fullSizeButton.isEnabled =
+                true
+        }
+    }
+
+    private fun startCameraThread() {
+
+        cameraThread =
+            HandlerThread(
+                "VivoRemosaicClone"
+            )
+
+        cameraThread.start()
+
+        cameraHandler =
+            Handler(
+                cameraThread.looper
+            )
     }
 
     private fun log(
-        message:
-            String
+        text: String
     ) {
 
         runOnUiThread {
 
             output.append(
-                message
+                text
             )
 
             output.append(
                 "\n"
             )
         }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode:
+            Int,
+        permissions:
+            Array<out String>,
+        grantResults:
+            IntArray
+    ) {
+
+        super.onRequestPermissionsResult(
+            requestCode,
+            permissions,
+            grantResults
+        )
+
+        if (
+            requestCode ==
+            CAMERA_PERMISSION_REQUEST &&
+            grantResults.isNotEmpty() &&
+            grantResults[0] ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+
+            openCamera()
+        }
+    }
+
+    override fun onDestroy() {
+
+        closeCurrentSession()
+
+        try {
+            cameraDevice?.close()
+        } catch (_: Throwable) {
+        }
+
+        try {
+            cameraThread.quitSafely()
+        } catch (_: Throwable) {
+        }
+
+        super.onDestroy()
     }
 }
