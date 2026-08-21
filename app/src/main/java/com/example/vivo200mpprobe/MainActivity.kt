@@ -3,6 +3,9 @@ package com.example.vivo200mpprobe
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Button
 import android.widget.LinearLayout
@@ -10,56 +13,62 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
+import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        private const val CAMERA_ID = "3"
+    }
+
     private lateinit var output: TextView
-    private lateinit var scroll: ScrollView
+    private lateinit var cameraManager: CameraManager
 
-    private val targetApks = listOf(
-        "/system/app/VivoCamera/VivoCamera.apk",
-        "/system/app/AlphaCamera/AlphaCamera.apk"
-    )
-
-    private val searchTerms = listOf(
-        "200mp",
-        "200MP",
-        "real200mp",
-        "ultra_highresolution",
-        "portrait_high_resolution",
-        "advance_fullsize",
+    /*
+     * These are the terms we're especially interested in after
+     * examining VivoCamera.apk.
+     */
+    private val interestingTerms = listOf(
+        "vivo",
+        "mtk",
+        "mediatek",
         "remosaic",
-        "Remosaic",
-        "EngineerRemosaicMode",
-        "sensorScenario",
-        "forceSensorMode",
-        "16320",
-        "12288",
-        "picturesize",
-        "snapJpegSize",
-        "streamsUsage",
-        "ModeSelector",
-        "VivoModeSelector",
+        "remosa",
+        "sensor",
+        "mode",
+        "quad",
+        "full",
+        "resolution",
         "highresolution",
-        "fullsize"
+        "high_resolution",
+        "200mp",
+        "100mp",
+        "capture",
+        "raw",
+        "pixel",
+        "scenario",
+        "stream",
+        "session",
+        "size"
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        cameraManager =
+            getSystemService(CAMERA_SERVICE) as CameraManager
+
         buildUi()
 
-        log("VIVO STOCK CAMERA APK PROBE")
+        log("CAMERA 3 VENDOR KEY PROBE")
         log("==============================")
         log("")
-        log("Targets:")
-        log("/system/app/VivoCamera/VivoCamera.apk")
-        log("/system/app/AlphaCamera/AlphaCamera.apk")
+        log("Camera ID: $CAMERA_ID")
+        log("Device: ${Build.MODEL}")
+        log("Android: ${Build.VERSION.RELEASE}")
+        log("SDK: ${Build.VERSION.SDK_INT}")
         log("")
-        log("Press EXTRACT / SCAN APKS.")
+        log("Press SCAN CAMERA KEYS.")
     }
 
     private fun buildUi() {
@@ -69,14 +78,18 @@ class MainActivity : AppCompatActivity() {
         root.orientation = LinearLayout.VERTICAL
         root.setPadding(20, 30, 20, 30)
 
-        val runButton = Button(this)
+        // -------------------------------------------------
+        // SCAN
+        // -------------------------------------------------
 
-        runButton.text = "EXTRACT / SCAN APKS"
+        val scanButton = Button(this)
 
-        runButton.setOnClickListener {
+        scanButton.text = "SCAN CAMERA KEYS"
+
+        scanButton.setOnClickListener {
 
             output.text = ""
-            runButton.isEnabled = false
+            scanButton.isEnabled = false
 
             Thread {
 
@@ -85,14 +98,18 @@ class MainActivity : AppCompatActivity() {
                 } finally {
 
                     runOnUiThread {
-                        runButton.isEnabled = true
+                        scanButton.isEnabled = true
                     }
                 }
 
             }.start()
         }
 
-        root.addView(runButton)
+        root.addView(scanButton)
+
+        // -------------------------------------------------
+        // COPY
+        // -------------------------------------------------
 
         val copyButton = Button(this)
 
@@ -106,7 +123,7 @@ class MainActivity : AppCompatActivity() {
 
                 Toast.makeText(
                     this,
-                    "No output to copy.",
+                    "No output yet.",
                     Toast.LENGTH_SHORT
                 ).show()
 
@@ -120,7 +137,7 @@ class MainActivity : AppCompatActivity() {
 
             clipboard.setPrimaryClip(
                 ClipData.newPlainText(
-                    "Vivo APK Probe",
+                    "Camera 3 Vendor Key Probe",
                     text
                 )
             )
@@ -134,6 +151,10 @@ class MainActivity : AppCompatActivity() {
 
         root.addView(copyButton)
 
+        // -------------------------------------------------
+        // CLEAR
+        // -------------------------------------------------
+
         val clearButton = Button(this)
 
         clearButton.text = "CLEAR OUTPUT"
@@ -144,11 +165,15 @@ class MainActivity : AppCompatActivity() {
 
         root.addView(clearButton)
 
-        scroll = ScrollView(this)
+        // -------------------------------------------------
+        // OUTPUT
+        // -------------------------------------------------
+
+        val scroll = ScrollView(this)
 
         output = TextView(this)
 
-        output.textSize = 13f
+        output.textSize = 12f
         output.setTextIsSelectable(true)
         output.setPadding(0, 20, 0, 120)
 
@@ -166,313 +191,571 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
     }
 
+    // =====================================================
+    // MAIN PROBE
+    // =====================================================
+
     private fun runProbe() {
 
-        log("VIVO STOCK CAMERA APK PROBE")
+        log("CAMERA 3 VENDOR KEY PROBE")
         log("==============================")
+        log("")
 
-        for (apkPath in targetApks) {
+        try {
 
-            log("")
-            log("")
-            log("################################")
-            log(apkPath)
-            log("################################")
+            val chars =
+                cameraManager.getCameraCharacteristics(
+                    CAMERA_ID
+                )
 
-            val source = File(apkPath)
+            // -------------------------------------------------
+            // SUMMARY FIRST
+            // -------------------------------------------------
 
-            log("Exists: ${source.exists()}")
-            log("Readable: ${source.canRead()}")
-            log("Size: ${if (source.exists()) source.length() else -1} bytes")
+            dumpInterestingSummary(chars)
 
-            if (!source.exists()) {
+            // -------------------------------------------------
+            // COMPLETE LISTS
+            // -------------------------------------------------
 
-                log("RESULT: FILE DOES NOT EXIST")
-                continue
+            dumpCaptureRequestKeys(chars)
+
+            dumpCaptureResultKeys(chars)
+
+            dumpSessionKeys(chars)
+
+            dumpCharacteristicKeys(chars)
+
+            if (Build.VERSION.SDK_INT >= 35) {
+                dumpSessionCharacteristicKeys(chars)
             }
 
-            if (!source.canRead()) {
-
-                log("RESULT: ACCESS DENIED")
-                continue
-            }
-
-            val destination =
-                File(
-                    getExternalFilesDir(null),
-                    source.name
-                )
-
-            try {
-
-                copyFile(
-                    source,
-                    destination
-                )
-
-                log("")
-                log("COPY SUCCESS")
-
-                log(
-                    "Saved to:"
-                )
-
-                log(
-                    destination.absolutePath
-                )
-
-                log(
-                    "Copied size: ${destination.length()} bytes"
-                )
-
-            } catch (e: Throwable) {
-
-                log("")
-                log("COPY FAILED")
-                log(e.javaClass.name)
-                log(e.message ?: "")
-            }
+            dumpPhysicalRequestKeys(chars)
 
             log("")
             log("==============================")
-            log("STRING SCAN")
+            log("PROBE COMPLETE")
+            log("==============================")
+            log("")
+            log("Press COPY OUTPUT.")
+
+        } catch (e: Throwable) {
+
+            log("")
+            log("==============================")
+            log("PROBE ERROR")
             log("==============================")
 
+            log(e.javaClass.name)
+            log(e.message ?: "")
+        }
+    }
+
+    // =====================================================
+    // INTERESTING SUMMARY
+    // =====================================================
+
+    private fun dumpInterestingSummary(
+        chars: CameraCharacteristics
+    ) {
+
+        log("==============================")
+        log("IMPORTANT / VENDOR KEY SUMMARY")
+        log("==============================")
+        log("")
+
+        val requestKeys =
             try {
-
-                scanFileForStrings(
-                    source
-                )
-
-            } catch (e: Throwable) {
-
-                log("")
-                log("STRING SCAN ERROR")
-                log(e.javaClass.name)
-                log(e.message ?: "")
+                chars.availableCaptureRequestKeys
+            } catch (_: Throwable) {
+                emptyList()
             }
-        }
 
-        log("")
-        log("")
-        log("==============================")
-        log("PROBE COMPLETE")
-        log("==============================")
-        log("")
-        log("Press COPY OUTPUT.")
-    }
+        val resultKeys =
+            try {
+                chars.availableCaptureResultKeys
+            } catch (_: Throwable) {
+                emptyList()
+            }
 
-    private fun copyFile(
-        source: File,
-        destination: File
-    ) {
+        val sessionKeys =
+            if (Build.VERSION.SDK_INT >= 28) {
 
-        FileInputStream(source).use { input ->
-
-            FileOutputStream(destination).use { output ->
-
-                val buffer =
-                    ByteArray(
-                        1024 * 1024
-                    )
-
-                while (true) {
-
-                    val count =
-                        input.read(buffer)
-
-                    if (count <= 0) {
-                        break
-                    }
-
-                    output.write(
-                        buffer,
-                        0,
-                        count
-                    )
+                try {
+                    chars.availableSessionKeys ?: emptyList()
+                } catch (_: Throwable) {
+                    emptyList()
                 }
-            }
-        }
-    }
-
-    private fun scanFileForStrings(
-        file: File
-    ) {
-
-        val maxBytes =
-            minOf(
-                file.length(),
-                300L * 1024L * 1024L
-            )
-
-        val chunkSize =
-            4 * 1024 * 1024
-
-        val overlap =
-            256
-
-        val input =
-            FileInputStream(file)
-
-        val buffer =
-            ByteArray(chunkSize)
-
-        var totalRead =
-            0L
-
-        val foundTerms =
-            mutableSetOf<String>()
-
-        var previousTail =
-            ByteArray(0)
-
-        input.use {
-
-            while (
-                totalRead <
-                maxBytes
-            ) {
-
-                val remaining =
-                    maxBytes - totalRead
-
-                val wanted =
-                    minOf(
-                        chunkSize.toLong(),
-                        remaining
-                    ).toInt()
-
-                val count =
-                    it.read(
-                        buffer,
-                        0,
-                        wanted
-                    )
-
-                if (count <= 0) {
-                    break
-                }
-
-                val combined =
-                    ByteArray(
-                        previousTail.size +
-                            count
-                    )
-
-                System.arraycopy(
-                    previousTail,
-                    0,
-                    combined,
-                    0,
-                    previousTail.size
-                )
-
-                System.arraycopy(
-                    buffer,
-                    0,
-                    combined,
-                    previousTail.size,
-                    count
-                )
-
-                val text =
-                    buildAsciiView(
-                        combined
-                    )
-
-                for (term in searchTerms) {
-
-                    if (
-                        !foundTerms.contains(term) &&
-                        text.contains(
-                            term,
-                            ignoreCase = true
-                        )
-                    ) {
-
-                        foundTerms.add(term)
-
-                        log(
-                            "FOUND: $term"
-                        )
-                    }
-                }
-
-                val tailLength =
-                    minOf(
-                        overlap,
-                        combined.size
-                    )
-
-                previousTail =
-                    combined.copyOfRange(
-                        combined.size -
-                            tailLength,
-                        combined.size
-                    )
-
-                totalRead +=
-                    count.toLong()
-            }
-        }
-
-        log("")
-        log(
-            "Bytes scanned: $totalRead"
-        )
-
-        if (foundTerms.isEmpty()) {
-
-            log(
-                "No target strings found."
-            )
-
-        } else {
-
-            log("")
-            log(
-                "MATCH COUNT: ${foundTerms.size}"
-            )
-
-            log("")
-            log("MATCHED TERMS:")
-
-            for (term in foundTerms) {
-                log("*** $term")
-            }
-        }
-    }
-
-    private fun buildAsciiView(
-        data: ByteArray
-    ): String {
-
-        val builder =
-            StringBuilder(
-                data.size
-            )
-
-        for (b in data) {
-
-            val value =
-                b.toInt() and
-                    0xFF
-
-            if (
-                value in 32..126
-            ) {
-
-                builder.append(
-                    value.toChar()
-                )
 
             } else {
-
-                builder.append(' ')
+                emptyList()
             }
+
+        val characteristicKeys =
+            try {
+                chars.keys
+            } catch (_: Throwable) {
+                emptyList()
+            }
+
+        val interestingRequests =
+            requestKeys.filter {
+                isInteresting(it.name)
+            }
+
+        val interestingResults =
+            resultKeys.filter {
+                isInteresting(it.name)
+            }
+
+        val interestingSessions =
+            sessionKeys.filter {
+                isInteresting(it.name)
+            }
+
+        val interestingCharacteristics =
+            characteristicKeys.filter {
+                isInteresting(it.name)
+            }
+
+        log("*** INTERESTING REQUEST KEYS ***")
+
+        if (interestingRequests.isEmpty()) {
+            log("NONE")
+        } else {
+
+            interestingRequests
+                .sortedBy { it.name }
+                .forEach {
+
+                    log("")
+                    log(it.name)
+                }
         }
 
-        return builder.toString()
+        log("")
+        log("*** INTERESTING RESULT KEYS ***")
+
+        if (interestingResults.isEmpty()) {
+            log("NONE")
+        } else {
+
+            interestingResults
+                .sortedBy { it.name }
+                .forEach {
+
+                    log("")
+                    log(it.name)
+                }
+        }
+
+        log("")
+        log("*** INTERESTING SESSION KEYS ***")
+
+        if (interestingSessions.isEmpty()) {
+            log("NONE")
+        } else {
+
+            interestingSessions
+                .sortedBy { it.name }
+                .forEach {
+
+                    log("")
+                    log("!!! SESSION KEY !!!")
+                    log(it.name)
+                }
+        }
+
+        log("")
+        log("*** INTERESTING CHARACTERISTIC KEYS ***")
+
+        if (interestingCharacteristics.isEmpty()) {
+            log("NONE")
+        } else {
+
+            interestingCharacteristics
+                .sortedBy { it.name }
+                .forEach {
+
+                    log("")
+                    log(it.name)
+
+                    try {
+
+                        val value =
+                            chars.get(it)
+
+                        log(
+                            "VALUE: ${formatValue(value)}"
+                        )
+
+                    } catch (e: Throwable) {
+
+                        log(
+                            "VALUE READ ERROR: " +
+                                e.javaClass.simpleName
+                        )
+                    }
+                }
+        }
+
+        log("")
+    }
+
+    // =====================================================
+    // REQUEST KEYS
+    // =====================================================
+
+    private fun dumpCaptureRequestKeys(
+        chars: CameraCharacteristics
+    ) {
+
+        log("==============================")
+        log("AVAILABLE CAPTURE REQUEST KEYS")
+        log("==============================")
+
+        try {
+
+            val keys =
+                chars.availableCaptureRequestKeys
+
+            log("COUNT: ${keys.size}")
+            log("")
+
+            keys
+                .sortedBy { it.name }
+                .forEachIndexed { index, key ->
+
+                    val marker =
+                        if (isInteresting(key.name)) {
+                            "***"
+                        } else {
+                            "   "
+                        }
+
+                    log(
+                        "$marker [$index] ${key.name}"
+                    )
+                }
+
+        } catch (e: Throwable) {
+
+            log("ERROR:")
+            log(e.toString())
+        }
+
+        log("")
+    }
+
+    // =====================================================
+    // RESULT KEYS
+    // =====================================================
+
+    private fun dumpCaptureResultKeys(
+        chars: CameraCharacteristics
+    ) {
+
+        log("==============================")
+        log("AVAILABLE CAPTURE RESULT KEYS")
+        log("==============================")
+
+        try {
+
+            val keys =
+                chars.availableCaptureResultKeys
+
+            log("COUNT: ${keys.size}")
+            log("")
+
+            keys
+                .sortedBy { it.name }
+                .forEachIndexed { index, key ->
+
+                    val marker =
+                        if (isInteresting(key.name)) {
+                            "***"
+                        } else {
+                            "   "
+                        }
+
+                    log(
+                        "$marker [$index] ${key.name}"
+                    )
+                }
+
+        } catch (e: Throwable) {
+
+            log("ERROR:")
+            log(e.toString())
+        }
+
+        log("")
+    }
+
+    // =====================================================
+    // SESSION KEYS
+    // =====================================================
+
+    private fun dumpSessionKeys(
+        chars: CameraCharacteristics
+    ) {
+
+        log("==============================")
+        log("AVAILABLE SESSION KEYS")
+        log("==============================")
+
+        if (Build.VERSION.SDK_INT < 28) {
+
+            log(
+                "Requires Android API 28+."
+            )
+
+            log("")
+            return
+        }
+
+        try {
+
+            val keys =
+                chars.availableSessionKeys
+
+            if (keys == null) {
+
+                log("NULL / NONE")
+                log("")
+                return
+            }
+
+            log("COUNT: ${keys.size}")
+            log("")
+
+            keys
+                .sortedBy { it.name }
+                .forEachIndexed { index, key ->
+
+                    val marker =
+                        if (isInteresting(key.name)) {
+                            ">>>"
+                        } else {
+                            "   "
+                        }
+
+                    log(
+                        "$marker [$index] ${key.name}"
+                    )
+                }
+
+        } catch (e: Throwable) {
+
+            log("ERROR:")
+            log(e.toString())
+        }
+
+        log("")
+    }
+
+    // =====================================================
+    // CHARACTERISTIC KEYS
+    // =====================================================
+
+    private fun dumpCharacteristicKeys(
+        chars: CameraCharacteristics
+    ) {
+
+        log("==============================")
+        log("ALL CAMERA CHARACTERISTIC KEYS")
+        log("==============================")
+
+        try {
+
+            val keys =
+                chars.keys
+
+            log("COUNT: ${keys.size}")
+            log("")
+
+            keys
+                .sortedBy { it.name }
+                .forEachIndexed { index, key ->
+
+                    val marker =
+                        if (isInteresting(key.name)) {
+                            "***"
+                        } else {
+                            "   "
+                        }
+
+                    log(
+                        "$marker [$index] ${key.name}"
+                    )
+                }
+
+        } catch (e: Throwable) {
+
+            log("ERROR:")
+            log(e.toString())
+        }
+
+        log("")
+    }
+
+    // =====================================================
+    // SESSION CHARACTERISTIC KEYS
+    // Android 15 / API 35+
+    // =====================================================
+
+    private fun dumpSessionCharacteristicKeys(
+        chars: CameraCharacteristics
+    ) {
+
+        log("==============================")
+        log("SESSION CHARACTERISTIC KEYS")
+        log("==============================")
+
+        try {
+
+            val keys =
+                chars.availableSessionCharacteristicsKeys
+
+            log("COUNT: ${keys.size}")
+            log("")
+
+            keys
+                .sortedBy { it.name }
+                .forEachIndexed { index, key ->
+
+                    val marker =
+                        if (isInteresting(key.name)) {
+                            "***"
+                        } else {
+                            "   "
+                        }
+
+                    log(
+                        "$marker [$index] ${key.name}"
+                    )
+                }
+
+        } catch (e: Throwable) {
+
+            log("ERROR:")
+            log(e.toString())
+        }
+
+        log("")
+    }
+
+    // =====================================================
+    // PHYSICAL CAMERA REQUEST KEYS
+    // =====================================================
+
+    private fun dumpPhysicalRequestKeys(
+        chars: CameraCharacteristics
+    ) {
+
+        log("==============================")
+        log("PHYSICAL CAMERA REQUEST KEYS")
+        log("==============================")
+
+        if (Build.VERSION.SDK_INT < 28) {
+
+            log("Requires API 28+.")
+            log("")
+            return
+        }
+
+        try {
+
+            val keys =
+                chars.availablePhysicalCameraRequestKeys
+
+            if (keys == null) {
+
+                log("NULL / NONE")
+                log("")
+                return
+            }
+
+            log("COUNT: ${keys.size}")
+            log("")
+
+            keys
+                .sortedBy { it.name }
+                .forEachIndexed { index, key ->
+
+                    val marker =
+                        if (isInteresting(key.name)) {
+                            "***"
+                        } else {
+                            "   "
+                        }
+
+                    log(
+                        "$marker [$index] ${key.name}"
+                    )
+                }
+
+        } catch (e: Throwable) {
+
+            log("ERROR:")
+            log(e.toString())
+        }
+
+        log("")
+    }
+
+    // =====================================================
+    // HELPERS
+    // =====================================================
+
+    private fun isInteresting(
+        name: String
+    ): Boolean {
+
+        val lower =
+            name.lowercase(
+                Locale.US
+            )
+
+        return interestingTerms.any {
+            lower.contains(it)
+        }
+    }
+
+    private fun formatValue(
+        value: Any?
+    ): String {
+
+        if (value == null) {
+            return "null"
+        }
+
+        return when (value) {
+
+            is IntArray ->
+                value.contentToString()
+
+            is LongArray ->
+                value.contentToString()
+
+            is FloatArray ->
+                value.contentToString()
+
+            is DoubleArray ->
+                value.contentToString()
+
+            is ByteArray ->
+                value.contentToString()
+
+            is BooleanArray ->
+                value.contentToString()
+
+            is Array<*> ->
+                value.contentDeepToString()
+
+            else ->
+                value.toString()
+        }
     }
 
     private fun log(
