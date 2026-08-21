@@ -14,19 +14,19 @@ class MainActivity : AppCompatActivity() {
     private lateinit var scroll: ScrollView
 
     private val targetFile =
-        "/system/etc/vivo_camera_third_compat.json"
+        "/system/etc/public.libraries-vivo.txt"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         buildUi()
-
         readFile()
     }
 
     private fun buildUi() {
 
-        val root = LinearLayout(this)
+        val root =
+            LinearLayout(this)
 
         root.orientation =
             LinearLayout.VERTICAL
@@ -42,12 +42,10 @@ class MainActivity : AppCompatActivity() {
             Button(this)
 
         button.text =
-            "READ VIVO CAMERA CONFIG"
+            "READ VIVO LIBRARIES"
 
         button.setOnClickListener {
-
             output.text = ""
-
             readFile()
         }
 
@@ -85,10 +83,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun readFile() {
 
-        log("VIVO THIRD-PARTY CAMERA CONFIG")
+        log("VIVO PUBLIC LIBRARIES")
         log("==============================")
         log("")
-        log("FILE:")
         log(targetFile)
         log("")
 
@@ -103,105 +100,75 @@ class MainActivity : AppCompatActivity() {
             "Readable: ${file.canRead()}"
         )
 
-        if (!file.exists()) {
+        if (
+            !file.exists() ||
+            !file.canRead()
+        ) {
 
             log("")
-            log("FILE DOES NOT EXIST")
-
-            return
-        }
-
-        if (!file.canRead()) {
-
-            log("")
-            log("ACCESS DENIED")
+            log("FILE UNAVAILABLE")
 
             return
         }
 
         try {
 
-            val text =
-                file.readText()
+            val lines =
+                file.readLines()
 
             log("")
             log("==============================")
-            log("FULL FILE CONTENT")
+            log("ALL LIBRARIES")
             log("==============================")
+
+            for (line in lines) {
+                log(line)
+            }
+
             log("")
-
-            log(text)
-
-            log("")
             log("==============================")
-            log("INTERESTING LINES")
+            log("CAMERA / SENSOR / ISP MATCHES")
             log("==============================")
-
-            val terms =
-                listOf(
-                    "camera",
-                    "package",
-                    "third",
-                    "allow",
-                    "deny",
-                    "white",
-                    "black",
-                    "resolution",
-                    "high",
-                    "200",
-                    "200mp",
-                    "16320",
-                    "12288",
-                    "pixel",
-                    "sensor",
-                    "jpeg",
-                    "raw",
-                    "remosaic",
-                    "full"
-                )
 
             var matches = 0
 
-            for (
-                (index, line)
-                in text.lines()
-                    .withIndex()
-            ) {
+            for (line in lines) {
 
                 val lower =
                     line.lowercase()
 
                 if (
-                    terms.any {
-                        lower.contains(it)
-                    }
+                    lower.contains("camera") ||
+                    lower.contains("cam") ||
+                    lower.contains("sensor") ||
+                    lower.contains("isp") ||
+                    lower.contains("jpeg") ||
+                    lower.contains("image") ||
+                    lower.contains("vivo") ||
+                    lower.contains("hal") ||
+                    lower.contains("raw")
                 ) {
 
                     matches++
 
                     log(
-                        "LINE ${index + 1}:"
+                        "*** $line"
                     )
-
-                    log(line)
-
-                    log("")
                 }
             }
 
+            log("")
             log(
-                "Interesting lines found: $matches"
+                "Interesting libraries found: $matches"
             )
 
         } catch (e: Throwable) {
 
             log("")
-            log("READ FAILED")
-
+            log("READ ERROR")
             log(
                 e.javaClass.name
             )
-
             log(
                 e.message ?: ""
             )
@@ -215,15 +182,10 @@ class MainActivity : AppCompatActivity() {
         runOnUiThread {
 
             output.append(
-                message
-            )
-
-            output.append(
-                "\n"
+                "$message\n"
             )
 
             scroll.post {
-
                 scroll.fullScroll(
                     ScrollView.FOCUS_DOWN
                 )
