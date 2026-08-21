@@ -36,8 +36,8 @@ class MainActivity : AppCompatActivity() {
         private const val CAMERA_ID = "3"
         private const val REQUEST_CAMERA = 1001
 
-        private const val NORMAL_WIDTH = 4080
-        private const val NORMAL_HEIGHT = 3072
+        private const val STANDARD_WIDTH = 4080
+        private const val STANDARD_HEIGHT = 3072
 
         private const val FULL_WIDTH = 16320
         private const val FULL_HEIGHT = 12288
@@ -46,24 +46,24 @@ class MainActivity : AppCompatActivity() {
     private lateinit var output: TextView
     private lateinit var scroll: ScrollView
 
-    private lateinit var standardButton: Button
-    private lateinit var fullButton: Button
+    private lateinit var standardSessionButton: Button
+    private lateinit var fullSessionButton: Button
+    private lateinit var captureButton: Button
 
+    private lateinit var cameraManager: CameraManager
     private lateinit var cameraThread: HandlerThread
     private lateinit var cameraHandler: Handler
 
-    private lateinit var cameraManager: CameraManager
-
     private var cameraDevice: CameraDevice? = null
     private var captureSession: CameraCaptureSession? = null
+    private var rawReader: ImageReader? = null
 
-    private var normalRawReader: ImageReader? = null
-    private var fullRawReader: ImageReader? = null
-
-    private var currentMode = 0
+    private var currentWidth = 0
+    private var currentHeight = 0
+    private var currentIsFull = false
 
     // =========================================================
-    // KNOWN / SUSPECTED VIVO SESSION KEYS
+    // SESSION KEYS
     // =========================================================
 
     private val ultraHighResolutionKey =
@@ -102,15 +102,15 @@ class MainActivity : AppCompatActivity() {
             Int::class.javaObjectType
         )
 
-    private val sensorScenarioKey =
-        CaptureRequest.Key(
-            "com.mediatek.seamlessfeature.sensorScenario",
-            Int::class.javaObjectType
-        )
-
     private val cameraScenarioKey =
         CaptureRequest.Key(
             "com.mediatek.seamlessfeature.cameraScenario",
+            Int::class.javaObjectType
+        )
+
+    private val sensorScenarioKey =
+        CaptureRequest.Key(
+            "com.mediatek.seamlessfeature.sensorScenario",
             Int::class.javaObjectType
         )
 
@@ -126,12 +126,6 @@ class MainActivity : AppCompatActivity() {
             IntArray::class.java
         )
 
-    private val vcfStreamTypeKey =
-        CaptureRequest.Key(
-            "vivo.control.vcfStreamType",
-            IntArray::class.java
-        )
-
     private val proRawKey =
         CaptureRequest.Key(
             "vivo.control.is_ProRaw_on",
@@ -139,7 +133,7 @@ class MainActivity : AppCompatActivity() {
         )
 
     // =========================================================
-    // CAPTURE-TIME KEYS
+    // CAPTURE KEYS
     // =========================================================
 
     private val real200mpKey =
@@ -151,12 +145,6 @@ class MainActivity : AppCompatActivity() {
     private val sensorModeKey =
         CaptureRequest.Key(
             "vivo.control.sensorMode",
-            Int::class.javaObjectType
-        )
-
-    private val previewSensorModeKey =
-        CaptureRequest.Key(
-            "vivo.preview.sensorMode",
             Int::class.javaObjectType
         )
 
@@ -199,19 +187,18 @@ class MainActivity : AppCompatActivity() {
         cameraManager =
             getSystemService(CAMERA_SERVICE) as CameraManager
 
-        log("VIVO CAMERA 3 FULL SENSOR RAW PROBE")
-        log("===================================")
+        log("VIVO SINGLE RAW OUTPUT TEST")
+        log("==============================")
         log("")
         log("Camera ID: $CAMERA_ID")
         log("")
-        log("Known public RAW:")
-        log("$NORMAL_WIDTH x $NORMAL_HEIGHT")
+        log("TEST A:")
+        log("$STANDARD_WIDTH x $STANDARD_HEIGHT RAW_SENSOR")
         log("")
-        log("Experimental full RAW:")
-        log("$FULL_WIDTH x $FULL_HEIGHT")
+        log("TEST B:")
+        log("$FULL_WIDTH x $FULL_HEIGHT RAW_SENSOR")
         log("")
-        log("This probe configures ProRAW/full-size")
-        log("controls BEFORE session creation.")
+        log("Only ONE RAW output is used per session.")
         log("")
 
         if (
@@ -220,7 +207,7 @@ class MainActivity : AppCompatActivity() {
                 Manifest.permission.CAMERA
             ) == PackageManager.PERMISSION_GRANTED
         ) {
-            initializeCamera()
+            openCamera()
         } else {
             ActivityCompat.requestPermissions(
                 this,
@@ -237,27 +224,43 @@ class MainActivity : AppCompatActivity() {
         root.orientation = LinearLayout.VERTICAL
         root.setPadding(20, 30, 20, 30)
 
-        standardButton = Button(this)
-        standardButton.text = "CAPTURE STANDARD RAW"
-        standardButton.isEnabled = false
+        standardSessionButton = Button(this)
+        standardSessionButton.text = "CREATE STANDARD RAW SESSION"
+        standardSessionButton.isEnabled = false
 
-        standardButton.setOnClickListener {
-            currentMode = 1
-            captureRaw(false)
+        standardSessionButton.setOnClickListener {
+            createRawSession(
+                STANDARD_WIDTH,
+                STANDARD_HEIGHT,
+                false
+            )
         }
 
-        root.addView(standardButton)
+        root.addView(standardSessionButton)
 
-        fullButton = Button(this)
-        fullButton.text = "TRY 200 MP RAW"
-        fullButton.isEnabled = false
+        fullSessionButton = Button(this)
+        fullSessionButton.text = "CREATE 200 MP RAW SESSION"
+        fullSessionButton.isEnabled = false
 
-        fullButton.setOnClickListener {
-            currentMode = 2
-            captureRaw(true)
+        fullSessionButton.setOnClickListener {
+            createRawSession(
+                FULL_WIDTH,
+                FULL_HEIGHT,
+                true
+            )
         }
 
-        root.addView(fullButton)
+        root.addView(fullSessionButton)
+
+        captureButton = Button(this)
+        captureButton.text = "CAPTURE RAW"
+        captureButton.isEnabled = false
+
+        captureButton.setOnClickListener {
+            captureRaw()
+        }
+
+        root.addView(captureButton)
 
         val copyButton = Button(this)
         copyButton.text = "COPY OUTPUT"
@@ -271,7 +274,7 @@ class MainActivity : AppCompatActivity() {
 
             clipboard.setPrimaryClip(
                 ClipData.newPlainText(
-                    "Vivo RAW Probe",
+                    "Single RAW Test",
                     output.text.toString()
                 )
             )
@@ -284,15 +287,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         root.addView(copyButton)
-
-        val recreateButton = Button(this)
-        recreateButton.text = "RECREATE SESSION"
-
-        recreateButton.setOnClickListener {
-            recreateSession()
-        }
-
-        root.addView(recreateButton)
 
         scroll = ScrollView(this)
 
@@ -316,90 +310,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     // =========================================================
-    // CAMERA INITIALIZATION
+    // OPEN CAMERA
     // =========================================================
-
-    private fun initializeCamera() {
-
-        log("==============================")
-        log("STEP 1 - CREATE RAW READERS")
-        log("==============================")
-
-        createNormalRawReader()
-        createFullRawReader()
-
-        openCamera()
-    }
-
-    private fun createNormalRawReader() {
-
-        try {
-
-            normalRawReader =
-                ImageReader.newInstance(
-                    NORMAL_WIDTH,
-                    NORMAL_HEIGHT,
-                    ImageFormat.RAW_SENSOR,
-                    2
-                )
-
-            normalRawReader?.setOnImageAvailableListener(
-                { reader ->
-                    handleRawImage(
-                        reader,
-                        "STANDARD"
-                    )
-                },
-                cameraHandler
-            )
-
-            log("")
-            log("STANDARD RAW reader created:")
-            log("$NORMAL_WIDTH x $NORMAL_HEIGHT")
-
-        } catch (e: Throwable) {
-
-            log("")
-            log("STANDARD RAW reader FAILED")
-            log(e.javaClass.name)
-            log(e.message ?: "")
-        }
-    }
-
-    private fun createFullRawReader() {
-
-        try {
-
-            fullRawReader =
-                ImageReader.newInstance(
-                    FULL_WIDTH,
-                    FULL_HEIGHT,
-                    ImageFormat.RAW_SENSOR,
-                    1
-                )
-
-            fullRawReader?.setOnImageAvailableListener(
-                { reader ->
-                    handleRawImage(
-                        reader,
-                        "FULL"
-                    )
-                },
-                cameraHandler
-            )
-
-            log("")
-            log("EXPERIMENTAL RAW reader CREATED:")
-            log("$FULL_WIDTH x $FULL_HEIGHT")
-
-        } catch (e: Throwable) {
-
-            log("")
-            log("EXPERIMENTAL RAW reader FAILED")
-            log(e.javaClass.name)
-            log(e.message ?: "")
-        }
-    }
 
     private fun openCamera() {
 
@@ -412,9 +324,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        log("")
         log("==============================")
-        log("STEP 2 - OPEN CAMERA 3")
+        log("OPENING CAMERA 3")
         log("==============================")
 
         cameraManager.openCamera(
@@ -429,8 +340,13 @@ class MainActivity : AppCompatActivity() {
                     cameraDevice = camera
 
                     log("Camera 3 opened.")
+                    log("")
+                    log("Choose which RAW session to create.")
 
-                    createRawSession()
+                    runOnUiThread {
+                        standardSessionButton.isEnabled = true
+                        fullSessionButton.isEnabled = true
+                    }
                 }
 
                 override fun onDisconnected(
@@ -448,7 +364,6 @@ class MainActivity : AppCompatActivity() {
                     error: Int
                 ) {
 
-                    log("")
                     log("CAMERA ERROR: $error")
 
                     camera.close()
@@ -461,62 +376,99 @@ class MainActivity : AppCompatActivity() {
     }
 
     // =========================================================
-    // SESSION CREATION
+    // CREATE ONE-OUTPUT SESSION
     // =========================================================
 
-    private fun createRawSession() {
+    private fun createRawSession(
+        width: Int,
+        height: Int,
+        full: Boolean
+    ) {
 
         val camera =
             cameraDevice ?: return
 
-        val normal =
-            normalRawReader ?: return
-
-        val surfaces =
-            mutableListOf(
-                normal.surface
-            )
-
-        val full =
-            fullRawReader
-
-        if (full != null) {
-
-            surfaces.add(
-                full.surface
-            )
-        }
-
-        log("")
-        log("==============================")
-        log("STEP 3 - CREATE RAW SESSION")
-        log("==============================")
-
-        log("")
-        log("Outputs requested:")
-
-        log(
-            "RAW_SENSOR $NORMAL_WIDTH x $NORMAL_HEIGHT"
-        )
-
-        if (full != null) {
-
-            log(
-                "RAW_SENSOR $FULL_WIDTH x $FULL_HEIGHT"
-            )
+        runOnUiThread {
+            standardSessionButton.isEnabled = false
+            fullSessionButton.isEnabled = false
+            captureButton.isEnabled = false
         }
 
         try {
+            captureSession?.close()
+        } catch (_: Throwable) {
+        }
 
-            if (
-                Build.VERSION.SDK_INT >=
-                Build.VERSION_CODES.P
-            ) {
+        try {
+            rawReader?.close()
+        } catch (_: Throwable) {
+        }
 
-                val outputs =
-                    surfaces.map {
-                        OutputConfiguration(it)
-                    }
+        captureSession = null
+        rawReader = null
+
+        currentWidth = width
+        currentHeight = height
+        currentIsFull = full
+
+        log("")
+        log("")
+        log("################################")
+        log(
+            if (full)
+                "CREATE 200 MP RAW SESSION"
+            else
+                "CREATE STANDARD RAW SESSION"
+        )
+        log("################################")
+
+        log("")
+        log("Requested RAW_SENSOR:")
+        log("$width x $height")
+
+        try {
+
+            rawReader =
+                ImageReader.newInstance(
+                    width,
+                    height,
+                    ImageFormat.RAW_SENSOR,
+                    1
+                )
+
+            rawReader?.setOnImageAvailableListener(
+                { reader ->
+                    handleRawImage(reader)
+                },
+                cameraHandler
+            )
+
+            log("ImageReader creation: SUCCESS")
+
+        } catch (e: Throwable) {
+
+            log("ImageReader creation: FAILED")
+            log(e.javaClass.name)
+            log(e.message ?: "")
+
+            enableSessionButtons()
+            return
+        }
+
+        val reader =
+            rawReader ?: return
+
+        if (
+            Build.VERSION.SDK_INT >=
+            Build.VERSION_CODES.P
+        ) {
+
+            try {
+
+                val outputConfiguration =
+                    OutputConfiguration(
+                        reader.surface
+                    )
 
                 val executor =
                     Executor { runnable ->
@@ -526,7 +478,7 @@ class MainActivity : AppCompatActivity() {
                 val configuration =
                     SessionConfiguration(
                         SessionConfiguration.SESSION_REGULAR,
-                        outputs,
+                        listOf(outputConfiguration),
                         executor,
 
                         object :
@@ -536,22 +488,24 @@ class MainActivity : AppCompatActivity() {
                                 session: CameraCaptureSession
                             ) {
 
-                                captureSession =
-                                    session
+                                captureSession = session
 
                                 log("")
+                                log("==============================")
+                                log("SESSION CONFIGURED")
+                                log("==============================")
+
                                 log(
-                                    "RAW SESSION CONFIGURED"
+                                    "$currentWidth x $currentHeight RAW_SENSOR"
                                 )
 
                                 log("")
-                                log(
-                                    "Both capture buttons enabled."
-                                )
+                                log("Press CAPTURE RAW.")
 
                                 runOnUiThread {
-                                    standardButton.isEnabled = true
-                                    fullButton.isEnabled = true
+                                    captureButton.isEnabled = true
+                                    standardSessionButton.isEnabled = true
+                                    fullSessionButton.isEnabled = true
                                 }
                             }
 
@@ -560,23 +514,27 @@ class MainActivity : AppCompatActivity() {
                             ) {
 
                                 log("")
-                                log(
-                                    "RAW SESSION CONFIGURATION FAILED"
-                                )
-
-                                log("")
-                                log(
-                                    "The HAL rejected the output combination."
-                                )
-
-                                log("")
-                                log(
-                                    "Press RECREATE SESSION to try"
-                                )
+                                log("==============================")
+                                log("SESSION CONFIGURATION FAILED")
+                                log("==============================")
 
                                 log(
-                                    "again after changing configuration."
+                                    "$currentWidth x $currentHeight RAW_SENSOR"
                                 )
+
+                                if (currentIsFull) {
+
+                                    log("")
+                                    log(
+                                        "HAL explicitly rejected the"
+                                    )
+
+                                    log(
+                                        "single 200 MP RAW output."
+                                    )
+                                }
+
+                                enableSessionButtons()
                             }
                         }
                     )
@@ -587,7 +545,7 @@ class MainActivity : AppCompatActivity() {
                     )
 
                 sessionBuilder.addTarget(
-                    normal.surface
+                    reader.surface
                 )
 
                 log("")
@@ -596,7 +554,8 @@ class MainActivity : AppCompatActivity() {
                 log("==============================")
 
                 applySessionParameters(
-                    sessionBuilder
+                    sessionBuilder,
+                    full
                 )
 
                 configuration.setSessionParameters(
@@ -607,70 +566,42 @@ class MainActivity : AppCompatActivity() {
                     configuration
                 )
 
-            } else {
+            } catch (e: Throwable) {
 
-                @Suppress("DEPRECATION")
-                camera.createCaptureSession(
-                    surfaces,
+                log("")
+                log("SESSION CREATE EXCEPTION")
+                log(e.javaClass.name)
+                log(e.message ?: "")
 
-                    object :
-                        CameraCaptureSession.StateCallback() {
-
-                        override fun onConfigured(
-                            session: CameraCaptureSession
-                        ) {
-
-                            captureSession =
-                                session
-
-                            runOnUiThread {
-                                standardButton.isEnabled = true
-                                fullButton.isEnabled = true
-                            }
-
-                            log(
-                                "RAW SESSION CONFIGURED"
-                            )
-                        }
-
-                        override fun onConfigureFailed(
-                            session: CameraCaptureSession
-                        ) {
-
-                            log(
-                                "RAW SESSION CONFIGURATION FAILED"
-                            )
-                        }
-                    },
-
-                    cameraHandler
-                )
+                enableSessionButtons()
             }
 
-        } catch (e: Throwable) {
+        } else {
 
-            log("")
-            log("SESSION CREATION EXCEPTION")
-            log(e.javaClass.name)
-            log(e.message ?: "")
+            log(
+                "This test requires Android 9+."
+            )
+
+            enableSessionButtons()
         }
     }
 
     private fun applySessionParameters(
-        builder: CaptureRequest.Builder
+        builder: CaptureRequest.Builder,
+        full: Boolean
     ) {
 
         setInt(
             builder,
             ultraHighResolutionKey,
-            1,
+            if (full) 1 else 0,
             "ultra_highresolution"
         )
 
         setByte(
             builder,
             portraitHighResolutionKey,
-            1,
+            if (full) 1 else 0,
             "portrait_high_resolution"
         )
 
@@ -684,21 +615,21 @@ class MainActivity : AppCompatActivity() {
         setInt(
             builder,
             forceSensorModeKey,
-            0,
+            if (full) 0 else 1,
             "forceSensorMode"
         )
 
         setInt(
             builder,
             engineerRemosaicModeKey,
-            1,
+            if (full) 1 else 0,
             "EngineerRemosaicMode"
         )
 
         setInt(
             builder,
             advanceFullsizeKey,
-            1,
+            if (full) 1 else 0,
             "advance_fullsize"
         )
 
@@ -719,7 +650,7 @@ class MainActivity : AppCompatActivity() {
         setInt(
             builder,
             sensorScenarioCustomHintKey,
-            1,
+            if (full) 1 else 0,
             "sensorScenarioCustomHint"
         )
 
@@ -734,25 +665,10 @@ class MainActivity : AppCompatActivity() {
             "streamsUsage"
         )
 
-        /*
-         * vcfStreamType type is not yet proven.
-         * We try IntArray first and log rejection.
-         */
-
-        setIntArray(
-            builder,
-            vcfStreamTypeKey,
-            intArrayOf(
-                0,
-                1
-            ),
-            "vcfStreamType"
-        )
-
         setInt(
             builder,
             proRawKey,
-            1,
+            if (full) 1 else 0,
             "is_ProRaw_on"
         )
     }
@@ -761,9 +677,7 @@ class MainActivity : AppCompatActivity() {
     // CAPTURE
     // =========================================================
 
-    private fun captureRaw(
-        fullResolution: Boolean
-    ) {
+    private fun captureRaw() {
 
         val camera =
             cameraDevice ?: return
@@ -772,36 +686,21 @@ class MainActivity : AppCompatActivity() {
             captureSession ?: return
 
         val reader =
-            if (fullResolution) {
-                fullRawReader
-            } else {
-                normalRawReader
-            }
-
-        if (reader == null) {
-
-            log(
-                "Requested ImageReader does not exist."
-            )
-
-            return
-        }
+            rawReader ?: return
 
         runOnUiThread {
-            standardButton.isEnabled = false
-            fullButton.isEnabled = false
+            captureButton.isEnabled = false
         }
 
         log("")
         log("")
-        log("################################")
+        log("==============================")
+        log("RAW CAPTURE")
+        log("==============================")
+
         log(
-            if (fullResolution)
-                "FULL 200 MP RAW REQUEST"
-            else
-                "STANDARD RAW REQUEST"
+            "Target: $currentWidth x $currentHeight"
         )
-        log("################################")
 
         try {
 
@@ -824,44 +723,32 @@ class MainActivity : AppCompatActivity() {
                 CaptureRequest.CONTROL_AE_MODE_ON
             )
 
-            /*
-             * Re-apply session-level controls to
-             * capture request as well.
-             */
             applySessionParameters(
-                builder
+                builder,
+                currentIsFull
             )
 
             log("")
-            log("==============================")
             log("CAPTURE PARAMETERS")
-            log("==============================")
 
             setInt(
                 builder,
                 real200mpKey,
-                1,
+                if (currentIsFull) 1 else 0,
                 "real200mp_switch_on"
             )
 
             setInt(
                 builder,
                 sensorModeKey,
-                if (fullResolution) 0 else 1,
+                if (currentIsFull) 0 else 1,
                 "sensorMode"
             )
 
             setInt(
                 builder,
-                previewSensorModeKey,
-                if (fullResolution) 0 else 1,
-                "preview.sensorMode"
-            )
-
-            setInt(
-                builder,
                 niceCaptureSensorModeKey,
-                if (fullResolution) 0 else 1,
+                if (currentIsFull) 0 else 1,
                 "niceCaptureSensorMode"
             )
 
@@ -875,7 +762,7 @@ class MainActivity : AppCompatActivity() {
             setInt(
                 builder,
                 highResolutionDngTypeKey,
-                if (fullResolution) 1 else 0,
+                if (currentIsFull) 1 else 0,
                 "highResolutionDngType"
             )
 
@@ -889,7 +776,7 @@ class MainActivity : AppCompatActivity() {
             setInt(
                 builder,
                 seamlessRemosaicKey,
-                if (fullResolution) 1 else 0,
+                if (currentIsFull) 1 else 0,
                 "seamless.remosaic.enable"
             )
 
@@ -906,7 +793,6 @@ class MainActivity : AppCompatActivity() {
                         frameNumber: Long
                     ) {
 
-                        log("")
                         log(
                             "Capture started."
                         )
@@ -922,23 +808,16 @@ class MainActivity : AppCompatActivity() {
                         result: TotalCaptureResult
                     ) {
 
-                        log("")
                         log(
                             "Capture request completed."
                         )
 
-                        dumpInterestingResults(
-                            result
-                        )
-
-                        log("")
                         log(
-                            "Waiting for RAW ImageReader..."
+                            "Waiting for RAW image..."
                         )
 
                         runOnUiThread {
-                            standardButton.isEnabled = true
-                            fullButton.isEnabled = true
+                            captureButton.isEnabled = true
                         }
                     }
 
@@ -949,19 +828,16 @@ class MainActivity : AppCompatActivity() {
                     ) {
 
                         log("")
-                        log("CAPTURE FAILED")
+                        log(
+                            "CAPTURE FAILED"
+                        )
 
                         log(
                             "Reason: ${failure.reason}"
                         )
 
-                        log(
-                            "Frame: ${failure.frameNumber}"
-                        )
-
                         runOnUiThread {
-                            standardButton.isEnabled = true
-                            fullButton.isEnabled = true
+                            captureButton.isEnabled = true
                         }
                     }
                 },
@@ -977,19 +853,17 @@ class MainActivity : AppCompatActivity() {
             log(e.message ?: "")
 
             runOnUiThread {
-                standardButton.isEnabled = true
-                fullButton.isEnabled = true
+                captureButton.isEnabled = true
             }
         }
     }
 
     // =========================================================
-    // RAW IMAGE HANDLER
+    // RAW IMAGE
     // =========================================================
 
     private fun handleRawImage(
-        reader: ImageReader,
-        label: String
+        reader: ImageReader
     ) {
 
         var image: Image? = null
@@ -1002,7 +876,7 @@ class MainActivity : AppCompatActivity() {
             if (image == null) {
 
                 log(
-                    "$label ImageReader returned null."
+                    "ImageReader returned null."
                 )
 
                 return
@@ -1010,16 +884,16 @@ class MainActivity : AppCompatActivity() {
 
             log("")
             log("")
-            log("================================")
-            log("$label RAW IMAGE RECEIVED")
-            log("================================")
+            log("********************************")
+            log("RAW IMAGE RECEIVED")
+            log("********************************")
 
             log(
-                "Image width: ${image.width}"
+                "Width: ${image.width}"
             )
 
             log(
-                "Image height: ${image.height}"
+                "Height: ${image.height}"
             )
 
             val mp =
@@ -1028,7 +902,7 @@ class MainActivity : AppCompatActivity() {
                     1_000_000.0
 
             log(
-                "Image MP: ${
+                "MP: ${
                     String.format(
                         Locale.US,
                         "%.2f",
@@ -1041,24 +915,18 @@ class MainActivity : AppCompatActivity() {
                 "Format: ${image.format}"
             )
 
-            log(
-                "Planes: ${image.planes.size}"
-            )
-
-            var totalBytes = 0L
+            var totalBytes =
+                0L
 
             image.planes.forEachIndexed {
                     index,
                     plane ->
 
-                val buffer =
-                    plane.buffer
-
-                val size =
-                    buffer.remaining()
+                val bytes =
+                    plane.buffer.remaining()
 
                 totalBytes +=
-                    size.toLong()
+                    bytes.toLong()
 
                 log("")
                 log(
@@ -1066,7 +934,7 @@ class MainActivity : AppCompatActivity() {
                 )
 
                 log(
-                    "Bytes: $size"
+                    "Bytes: $bytes"
                 )
 
                 log(
@@ -1080,7 +948,7 @@ class MainActivity : AppCompatActivity() {
 
             log("")
             log(
-                "TOTAL RAW BYTES: $totalBytes"
+                "Total bytes: $totalBytes"
             )
 
             log(
@@ -1095,9 +963,8 @@ class MainActivity : AppCompatActivity() {
                 }"
             )
 
-            saveRaw(
-                image,
-                label
+            saveRawImage(
+                image
             )
 
             if (
@@ -1111,7 +978,7 @@ class MainActivity : AppCompatActivity() {
                 )
 
                 log(
-                    "FULL 200 MP RAW FRAME RECEIVED"
+                    "REAL 200 MP RAW FRAME RECEIVED"
                 )
 
                 log(
@@ -1122,8 +989,7 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Throwable) {
 
             log("")
-            log("$label RAW READ ERROR")
-
+            log("RAW IMAGE ERROR")
             log(e.javaClass.name)
             log(e.message ?: "")
 
@@ -1136,9 +1002,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun saveRaw(
-        image: Image,
-        label: String
+    private fun saveRawImage(
+        image: Image
     ) {
 
         try {
@@ -1163,17 +1028,14 @@ class MainActivity : AppCompatActivity() {
             val file =
                 File(
                     directory,
-                    "RAW_${label}_" +
-                        "${image.width}x${image.height}_" +
-                        "$stamp.bin"
+                    "RAW_${image.width}x${image.height}_$stamp.bin"
                 )
 
             FileOutputStream(
                 file
             ).use { stream ->
 
-                image.planes.forEach {
-                        plane ->
+                image.planes.forEach { plane ->
 
                     val buffer =
                         plane.buffer.duplicate()
@@ -1194,14 +1056,11 @@ class MainActivity : AppCompatActivity() {
             }
 
             log("")
-            log("RAW FILE SAVED:")
+            log("Saved:")
+            log(file.absolutePath)
 
             log(
-                file.absolutePath
-            )
-
-            log(
-                "Saved size: ${
+                "File size: ${
                     String.format(
                         Locale.US,
                         "%.2f MB",
@@ -1215,76 +1074,14 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Throwable) {
 
             log("")
-            log("RAW SAVE ERROR")
-
+            log("SAVE ERROR")
             log(e.javaClass.name)
             log(e.message ?: "")
         }
     }
 
     // =========================================================
-    // RESULT INSPECTION
-    // =========================================================
-
-    private fun dumpInterestingResults(
-        result: TotalCaptureResult
-    ) {
-
-        log("")
-        log("==============================")
-        log("RETURNED RAW / SENSOR KEYS")
-        log("==============================")
-
-        val terms =
-            listOf(
-                "raw",
-                "sensor",
-                "remosaic",
-                "200mp",
-                "highresolution",
-                "highres",
-                "dng",
-                "proraw",
-                "native",
-                "scenario",
-                "fullsize",
-                "capture_type"
-            )
-
-        for (key in result.keys) {
-
-            val lower =
-                key.name.lowercase(
-                    Locale.US
-                )
-
-            if (
-                terms.any {
-                    lower.contains(it)
-                }
-            ) {
-
-                val value =
-                    try {
-                        result.get(key)
-                    } catch (_: Throwable) {
-                        "<READ ERROR>"
-                    }
-
-                log("")
-                log(
-                    key.name
-                )
-
-                log(
-                    formatValue(value)
-                )
-            }
-        }
-    }
-
-    // =========================================================
-    // KEY SETTERS
+    // SETTERS
     // =========================================================
 
     private fun setInt(
@@ -1381,58 +1178,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // =========================================================
-    // RECREATE SESSION
-    // =========================================================
-
-    private fun recreateSession() {
+    private fun enableSessionButtons() {
 
         runOnUiThread {
-            standardButton.isEnabled = false
-            fullButton.isEnabled = false
-        }
-
-        try {
-            captureSession?.close()
-        } catch (_: Throwable) {
-        }
-
-        captureSession = null
-
-        createRawSession()
-    }
-
-    // =========================================================
-    // HELPERS
-    // =========================================================
-
-    private fun formatValue(
-        value: Any?
-    ): String {
-
-        if (value == null) {
-            return "null"
-        }
-
-        return when (value) {
-
-            is IntArray ->
-                value.contentToString()
-
-            is LongArray ->
-                value.contentToString()
-
-            is FloatArray ->
-                value.contentToString()
-
-            is DoubleArray ->
-                value.contentToString()
-
-            is ByteArray ->
-                value.contentToString()
-
-            else ->
-                value.toString()
+            standardSessionButton.isEnabled = true
+            fullSessionButton.isEnabled = true
+            captureButton.isEnabled = false
         }
     }
 
@@ -1442,13 +1193,8 @@ class MainActivity : AppCompatActivity() {
 
         runOnUiThread {
 
-            output.append(
-                message
-            )
-
-            output.append(
-                "\n"
-            )
+            output.append(message)
+            output.append("\n")
         }
     }
 
@@ -1456,7 +1202,7 @@ class MainActivity : AppCompatActivity() {
 
         cameraThread =
             HandlerThread(
-                "VivoFullRawProbe"
+                "VivoSingleRawTest"
             )
 
         cameraThread.start()
@@ -1480,14 +1226,13 @@ class MainActivity : AppCompatActivity() {
         )
 
         if (
-            requestCode ==
-            REQUEST_CAMERA &&
+            requestCode == REQUEST_CAMERA &&
             grantResults.isNotEmpty() &&
             grantResults[0] ==
             PackageManager.PERMISSION_GRANTED
         ) {
 
-            initializeCamera()
+            openCamera()
         }
     }
 
@@ -1504,12 +1249,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         try {
-            normalRawReader?.close()
-        } catch (_: Throwable) {
-        }
-
-        try {
-            fullRawReader?.close()
+            rawReader?.close()
         } catch (_: Throwable) {
         }
 
