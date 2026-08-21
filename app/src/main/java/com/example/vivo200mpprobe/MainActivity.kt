@@ -15,7 +15,6 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import java.lang.reflect.Method
 import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
@@ -28,6 +27,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var scroll: ScrollView
     private lateinit var cameraManager: CameraManager
 
+    /*
+     * These are the OEM keys we are especially interested in.
+     *
+     * Some may exist only as CaptureRequest / CaptureResult /
+     * session keys rather than CameraCharacteristics keys.
+     *
+     * This probe tells us which ones are actually exposed through
+     * CameraCharacteristics and prints their values when possible.
+     */
     private val targetKeyNames = listOf(
         "vcf.parameter.sensorSizeList",
         "vcf.parameter.SnapshotJpegStreamMap",
@@ -36,22 +44,39 @@ class MainActivity : AppCompatActivity() {
         "vivo.control.picturesize.value",
         "vivo.control.streamsUsage",
         "vivo.control.vcfStreamType",
+
         "vivo.control.raw_capture_type",
         "vivo.parameter.highResolutionDngType",
         "vivo.parameter.niceCaptureSensorMode",
+
         "vivo.control.sensorMode",
         "vivo.preview.sensorMode",
+
         "vivo.control.real200mp_switch_on",
         "vivo.control.ultra_highresolution",
+        "vivo.control.portrait_high_resolution",
+        "vivo.control.ai_highresolution",
+        "vivo.control.forceSensorMode",
+
         "vivo.control.advance_fullsize",
         "vivo.control.EngineerRemosaicMode",
         "vivo.control.remosaic.capability",
         "vivo.control.seamless.remosaic.enable",
+        "vivo.control.seamless.roiRemosaic",
+
+        "com.mediatek.control.capture.remosaicenable",
+        "com.mediatek.control.capture.seamless.remosaicenable",
+
         "com.mediatek.seamlessfeature.cameraScenario",
         "com.mediatek.seamlessfeature.sensorScenario",
-        "com.mediatek.seamlessfeature.sensorScenarioCustomHint"
+        "com.mediatek.seamlessfeature.sensorScenarioCustomHint",
+        "com.mediatek.seamlessfeature.sensorScenarioSwitchPolicy"
     )
 
+    /*
+     * Used to filter the enormous vendor-key list down to keys
+     * that are likely to matter for full-resolution capture.
+     */
     private val interestingTerms = listOf(
         "size",
         "stream",
@@ -68,7 +93,9 @@ class MainActivity : AppCompatActivity() {
         "capture",
         "scenario",
         "200mp",
-        "highres"
+        "highres",
+        "high_resolution",
+        "highresolution"
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -84,9 +111,22 @@ class MainActivity : AppCompatActivity() {
         log("")
         log("Camera ID: $CAMERA_ID")
         log("")
-        log("No image will be captured.")
+        log("This probe does NOT capture an image.")
+        log("")
+        log("It inspects:")
+        log("- Public Camera2 stream sizes")
+        log("- High-resolution stream sizes")
+        log("- Input/reprocessing sizes")
+        log("- Vivo vendor characteristic keys")
+        log("- VCF stream-map metadata")
+        log("- Sensor/full-resolution metadata")
+        log("")
         log("Press RUN FULL STREAM PROBE.")
     }
+
+    // =========================================================
+    // UI
+    // =========================================================
 
     private fun buildUi() {
 
@@ -94,6 +134,10 @@ class MainActivity : AppCompatActivity() {
 
         root.orientation = LinearLayout.VERTICAL
         root.setPadding(20, 30, 20, 30)
+
+        // -----------------------------------------------------
+        // RUN BUTTON
+        // -----------------------------------------------------
 
         val runButton = Button(this)
 
@@ -107,7 +151,25 @@ class MainActivity : AppCompatActivity() {
             Thread {
 
                 try {
+
                     runProbe()
+
+                } catch (e: Throwable) {
+
+                    log("")
+                    log("==============================")
+                    log("FATAL PROBE ERROR")
+                    log("==============================")
+                    log("")
+                    log(e.javaClass.name)
+                    log(e.message ?: "No error message")
+
+                    val stack =
+                        e.stackTraceToString()
+
+                    log("")
+                    log(stack)
+
                 } finally {
 
                     runOnUiThread {
@@ -120,13 +182,18 @@ class MainActivity : AppCompatActivity() {
 
         root.addView(runButton)
 
+        // -----------------------------------------------------
+        // COPY BUTTON
+        // -----------------------------------------------------
+
         val copyButton = Button(this)
 
         copyButton.text = "COPY OUTPUT"
 
         copyButton.setOnClickListener {
 
-            val text = output.text.toString()
+            val text =
+                output.text.toString()
 
             if (text.isBlank()) {
 
@@ -160,6 +227,10 @@ class MainActivity : AppCompatActivity() {
 
         root.addView(copyButton)
 
+        // -----------------------------------------------------
+        // CLEAR BUTTON
+        // -----------------------------------------------------
+
         val clearButton = Button(this)
 
         clearButton.text = "CLEAR"
@@ -170,13 +241,22 @@ class MainActivity : AppCompatActivity() {
 
         root.addView(clearButton)
 
+        // -----------------------------------------------------
+        // OUTPUT
+        // -----------------------------------------------------
+
         scroll = ScrollView(this)
 
         output = TextView(this)
 
         output.textSize = 13f
         output.setTextIsSelectable(true)
-        output.setPadding(0, 20, 0, 120)
+        output.setPadding(
+            0,
+            20,
+            0,
+            120
+        )
 
         scroll.addView(output)
 
@@ -192,60 +272,127 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
     }
 
+    // =========================================================
+    // MAIN PROBE
+    // =========================================================
+
     private fun runProbe() {
 
         log("VIVO 200 MP STREAM MAP PROBE")
         log("==============================")
+        log("")
+        log("Camera ID: $CAMERA_ID")
+
+        // -----------------------------------------------------
+        // CAMERA LIST
+        // -----------------------------------------------------
+
+        log("")
+        log("==============================")
+        log("AVAILABLE CAMERA IDS")
+        log("==============================")
 
         try {
 
-            val chars =
-                cameraManager.getCameraCharacteristics(
-                    CAMERA_ID
-                )
+            val ids =
+                cameraManager.cameraIdList
 
-            dumpSensorBasics(chars)
-
-            val map =
-                chars.get(
-                    CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP
-                )
-
-            if (map == null) {
-
-                log("")
-                log("NO STREAM CONFIGURATION MAP")
-                return
+            for (id in ids) {
+                log("Camera ID: $id")
             }
-
-            dumpAllFormats(map)
-            dumpHighResolutionFormats(map)
-            dumpInputFormats(map)
-
-            dumpExactTargetCharacteristicKeys(chars)
-
-            dumpInterestingCharacteristicKeys(chars)
-
-            dumpKeyTypeHints(chars)
-
-            log("")
-            log("")
-            log("==============================")
-            log("PROBE COMPLETE")
-            log("==============================")
-            log("")
-            log("Press COPY OUTPUT.")
 
         } catch (e: Throwable) {
 
+            log(
+                "Could not enumerate cameras: " +
+                    e.javaClass.simpleName
+            )
+        }
+
+        // -----------------------------------------------------
+        // CHARACTERISTICS
+        // -----------------------------------------------------
+
+        val chars =
+            cameraManager.getCameraCharacteristics(
+                CAMERA_ID
+            )
+
+        dumpSensorBasics(chars)
+
+        dumpCapabilities(chars)
+
+        // -----------------------------------------------------
+        // PUBLIC STREAM MAP
+        // -----------------------------------------------------
+
+        val map =
+            chars.get(
+                CameraCharacteristics
+                    .SCALER_STREAM_CONFIGURATION_MAP
+            )
+
+        if (map == null) {
+
             log("")
             log("==============================")
-            log("PROBE ERROR")
+            log("NO STREAM CONFIGURATION MAP")
             log("==============================")
+            log("")
+            log("Camera 3 did not expose a public")
+            log("SCALER_STREAM_CONFIGURATION_MAP.")
 
-            log(e.javaClass.name)
-            log(e.message ?: "")
+        } else {
+
+            dumpAllFormats(map)
+
+            dumpHighResolutionFormats(map)
+
+            dumpInputFormats(map)
+
+            searchPublicMapFor200MP(map)
         }
+
+        // -----------------------------------------------------
+        // OEM CHARACTERISTICS
+        // -----------------------------------------------------
+
+        dumpExactTargetCharacteristicKeys(
+            chars
+        )
+
+        dumpInterestingCharacteristicKeys(
+            chars
+        )
+
+        dumpAllVendorCharacteristicNames(
+            chars
+        )
+
+        // -----------------------------------------------------
+        // SUMMARY
+        // -----------------------------------------------------
+
+        log("")
+        log("")
+        log("==============================")
+        log("PROBE COMPLETE")
+        log("==============================")
+        log("")
+        log("SEARCH THE OUTPUT FOR:")
+        log("")
+        log("16320")
+        log("12288")
+        log("200")
+        log("sensorSizeList")
+        log("SnapshotJpegStreamMap")
+        log("snapshotYuvStreamMap")
+        log("snapJpegSize")
+        log("picturesize")
+        log("fullsize")
+        log("remosaic")
+        log("")
+        log("Press COPY OUTPUT.")
     }
 
     // =========================================================
@@ -261,35 +408,117 @@ class MainActivity : AppCompatActivity() {
         log("SENSOR BASICS")
         log("==============================")
 
-        val pixel =
+        val pixelArray =
             chars.get(
-                CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE
+                CameraCharacteristics
+                    .SENSOR_INFO_PIXEL_ARRAY_SIZE
             )
 
-        val active =
+        val preCorrection =
             chars.get(
-                CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE
+                CameraCharacteristics
+                    .SENSOR_INFO_PRE_CORRECTION_ACTIVE_ARRAY_SIZE
             )
 
-        log(
-            "Pixel array: ${pixel ?: "NOT EXPOSED"}"
-        )
+        val activeArray =
+            chars.get(
+                CameraCharacteristics
+                    .SENSOR_INFO_ACTIVE_ARRAY_SIZE
+            )
 
-        log(
-            "Active array: ${active ?: "NOT EXPOSED"}"
-        )
+        val physicalSize =
+            chars.get(
+                CameraCharacteristics
+                    .SENSOR_INFO_PHYSICAL_SIZE
+            )
+
+        val maxAnalogSensitivity =
+            chars.get(
+                CameraCharacteristics
+                    .SENSOR_MAX_ANALOG_SENSITIVITY
+            )
+
+        val orientation =
+            chars.get(
+                CameraCharacteristics
+                    .SENSOR_ORIENTATION
+            )
 
         log("")
+        log(
+            "Pixel array: " +
+                (pixelArray ?: "NOT EXPOSED")
+        )
+
+        log(
+            "Pre-correction active array: " +
+                (preCorrection ?: "NOT EXPOSED")
+        )
+
+        log(
+            "Active array: " +
+                (activeArray ?: "NOT EXPOSED")
+        )
+
+        log(
+            "Physical size: " +
+                (physicalSize ?: "NOT EXPOSED")
+        )
+
+        log(
+            "Max analog sensitivity: " +
+                (maxAnalogSensitivity ?: "NOT EXPOSED")
+        )
+
+        log(
+            "Sensor orientation: " +
+                (orientation ?: "NOT EXPOSED")
+        )
     }
 
     // =========================================================
-    // ALL STANDARD OUTPUT FORMATS
+    // CAMERA CAPABILITIES
+    // =========================================================
+
+    private fun dumpCapabilities(
+        chars: CameraCharacteristics
+    ) {
+
+        log("")
+        log("==============================")
+        log("CAMERA CAPABILITIES")
+        log("==============================")
+
+        val capabilities =
+            chars.get(
+                CameraCharacteristics
+                    .REQUEST_AVAILABLE_CAPABILITIES
+            )
+
+        if (capabilities == null) {
+
+            log("No capability array exposed.")
+            return
+        }
+
+        for (capability in capabilities) {
+
+            log(
+                "$capability = " +
+                    capabilityName(capability)
+            )
+        }
+    }
+
+    // =========================================================
+    // STANDARD OUTPUT STREAM MAP
     // =========================================================
 
     private fun dumpAllFormats(
         map: StreamConfigurationMap
     ) {
 
+        log("")
         log("==============================")
         log("STANDARD CAMERA2 STREAM MAP")
         log("==============================")
@@ -297,19 +526,34 @@ class MainActivity : AppCompatActivity() {
         val formats =
             map.outputFormats
 
+        log("")
+        log(
+            "Output format count: " +
+                formats.size
+        )
+
         for (format in formats) {
 
             log("")
             log("--------------------------------")
             log(
-                "FORMAT $format = ${formatName(format)}"
+                "FORMAT $format = " +
+                    formatName(format)
             )
             log("--------------------------------")
 
             val sizes =
                 try {
+
                     map.getOutputSizes(format)
-                } catch (_: Throwable) {
+
+                } catch (e: Throwable) {
+
+                    log(
+                        "getOutputSizes failed: " +
+                            e.javaClass.simpleName
+                    )
+
                     null
                 }
 
@@ -326,8 +570,9 @@ class MainActivity : AppCompatActivity() {
                 "Count: ${sorted.size}"
             )
 
-            for (size in sorted) {
+            log("")
 
+            for (size in sorted) {
                 logSize(size)
             }
 
@@ -337,67 +582,78 @@ class MainActivity : AppCompatActivity() {
             if (largest != null) {
 
                 log("")
-                log("LARGEST:")
+                log("LARGEST OUTPUT:")
 
-                logSize(
-                    largest
-                )
+                logSize(largest)
             }
 
-            val possible200 =
+            val huge =
                 sorted.filter {
                     pixels(it) >=
-                        150_000_000L
+                        100_000_000L
                 }
 
-            if (possible200.isNotEmpty()) {
+            if (huge.isNotEmpty()) {
 
                 log("")
                 log(
-                    "***** VERY LARGE OUTPUT FOUND *****"
+                    "********************************"
+                )
+                log(
+                    "VERY LARGE OUTPUT(S) FOUND"
+                )
+                log(
+                    "********************************"
                 )
 
-                for (size in possible200) {
+                for (size in huge) {
                     logSize(size)
                 }
             }
         }
-
-        log("")
     }
 
     // =========================================================
-    // HIGH RESOLUTION
+    // HIGH RESOLUTION OUTPUT STREAM MAP
     // =========================================================
 
     private fun dumpHighResolutionFormats(
         map: StreamConfigurationMap
     ) {
 
+        log("")
         log("==============================")
         log("HIGH RESOLUTION STREAM MAP")
         log("==============================")
 
-        val formatsToCheck =
-            map.outputFormats.toList()
+        var anythingFound = false
 
-        for (format in formatsToCheck) {
+        val formats =
+            map.outputFormats
 
-            val high =
+        for (format in formats) {
+
+            val highSizes =
                 try {
+
                     map.getHighResolutionOutputSizes(
                         format
                     )
+
                 } catch (_: Throwable) {
+
                     null
                 }
 
             if (
-                high == null ||
-                high.isEmpty()
+                highSizes == null ||
+                highSizes.isEmpty()
             ) {
+
                 continue
             }
+
+            anythingFound = true
 
             log("")
             log("--------------------------------")
@@ -409,23 +665,44 @@ class MainActivity : AppCompatActivity() {
 
             log("--------------------------------")
 
-            for (size in sortSizes(high)) {
+            val sorted =
+                sortSizes(highSizes)
+
+            for (size in sorted) {
 
                 logSize(size)
+
+                if (
+                    pixels(size) >=
+                    100_000_000L
+                ) {
+
+                    log(
+                        "  ***** >100 MP *****"
+                    )
+                }
             }
         }
 
-        log("")
+        if (!anythingFound) {
+
+            log("")
+            log(
+                "No high-resolution output sizes " +
+                    "were exposed through the public API."
+            )
+        }
     }
 
     // =========================================================
-    // INPUT FORMATS
+    // INPUT / REPROCESSING STREAMS
     // =========================================================
 
     private fun dumpInputFormats(
         map: StreamConfigurationMap
     ) {
 
+        log("")
         log("==============================")
         log("INPUT / REPROCESSING MAP")
         log("==============================")
@@ -437,60 +714,220 @@ class MainActivity : AppCompatActivity() {
 
             if (formats.isEmpty()) {
 
+                log("")
                 log(
                     "No input formats exposed."
                 )
 
-            } else {
+                return
+            }
 
-                for (format in formats) {
+            for (format in formats) {
 
-                    log("")
-                    log(
-                        "INPUT $format = ${formatName(format)}"
-                    )
+                log("")
+                log("--------------------------------")
 
-                    val sizes =
-                        try {
-                            map.getInputSizes(format)
-                        } catch (_: Throwable) {
-                            null
-                        }
+                log(
+                    "INPUT $format = " +
+                        formatName(format)
+                )
 
-                    if (sizes == null) {
+                log("--------------------------------")
 
-                        log(
-                            "No sizes."
+                val sizes =
+                    try {
+
+                        map.getInputSizes(
+                            format
                         )
 
-                    } else {
+                    } catch (_: Throwable) {
 
-                        for (size in sortSizes(sizes)) {
+                        null
+                    }
 
-                            logSize(size)
-                        }
+                if (sizes == null) {
+
+                    log("No sizes.")
+
+                } else {
+
+                    for (
+                        size in sortSizes(sizes)
+                    ) {
+
+                        logSize(size)
                     }
                 }
             }
 
         } catch (e: Throwable) {
 
+            log("")
             log(
-                "Input map error: ${e.message ?: ""}"
+                "Input map error: " +
+                    e.javaClass.simpleName +
+                    ": " +
+                    (e.message ?: "")
             )
         }
-
-        log("")
     }
 
     // =========================================================
-    // EXACT TARGET CHARACTERISTIC KEYS
+    // SPECIFICALLY SEARCH PUBLIC MAP FOR 200 MP
+    // =========================================================
+
+    private fun searchPublicMapFor200MP(
+        map: StreamConfigurationMap
+    ) {
+
+        log("")
+        log("==============================")
+        log("200 MP PUBLIC STREAM SEARCH")
+        log("==============================")
+
+        var exactFound = false
+        var hugeFound = false
+
+        for (format in map.outputFormats) {
+
+            val normal =
+                try {
+                    map.getOutputSizes(format)
+                } catch (_: Throwable) {
+                    null
+                }
+
+            if (normal != null) {
+
+                for (size in normal) {
+
+                    if (
+                        size.width == 16320 &&
+                        size.height == 12288
+                    ) {
+
+                        exactFound = true
+
+                        log("")
+                        log(
+                            "***** EXACT 200 MP SIZE FOUND *****"
+                        )
+
+                        log(
+                            "Format: $format = " +
+                                formatName(format)
+                        )
+
+                        logSize(size)
+                    }
+
+                    if (
+                        pixels(size) >=
+                        150_000_000L
+                    ) {
+
+                        hugeFound = true
+
+                        log("")
+                        log(
+                            "***** >=150 MP OUTPUT FOUND *****"
+                        )
+
+                        log(
+                            "Format: $format = " +
+                                formatName(format)
+                        )
+
+                        logSize(size)
+                    }
+                }
+            }
+
+            val high =
+                try {
+                    map.getHighResolutionOutputSizes(
+                        format
+                    )
+                } catch (_: Throwable) {
+                    null
+                }
+
+            if (high != null) {
+
+                for (size in high) {
+
+                    if (
+                        size.width == 16320 &&
+                        size.height == 12288
+                    ) {
+
+                        exactFound = true
+
+                        log("")
+                        log(
+                            "***** EXACT 200 MP HIGH-RES SIZE FOUND *****"
+                        )
+
+                        log(
+                            "Format: $format = " +
+                                formatName(format)
+                        )
+
+                        logSize(size)
+                    }
+
+                    if (
+                        pixels(size) >=
+                        150_000_000L
+                    ) {
+
+                        hugeFound = true
+
+                        log("")
+                        log(
+                            "***** >=150 MP HIGH-RES OUTPUT FOUND *****"
+                        )
+
+                        log(
+                            "Format: $format = " +
+                                formatName(format)
+                        )
+
+                        logSize(size)
+                    }
+                }
+            }
+        }
+
+        log("")
+
+        if (!exactFound) {
+
+            log(
+                "16320 x 12288 was NOT found " +
+                    "in the public Camera2 stream map."
+            )
+        }
+
+        if (!hugeFound) {
+
+            log(
+                "No >=150 MP public output " +
+                    "was found."
+            )
+        }
+    }
+
+    // =========================================================
+    // EXACT OEM TARGET CHARACTERISTIC KEYS
     // =========================================================
 
     private fun dumpExactTargetCharacteristicKeys(
         chars: CameraCharacteristics
     ) {
 
+        log("")
         log("==============================")
         log("EXACT OEM TARGET KEYS")
         log("==============================")
@@ -513,7 +950,8 @@ class MainActivity : AppCompatActivity() {
             if (key == null) {
 
                 log(
-                    "Not present as CameraCharacteristics key."
+                    "Not present as a " +
+                        "CameraCharacteristics key."
                 )
 
                 continue
@@ -521,40 +959,39 @@ class MainActivity : AppCompatActivity() {
 
             val value =
                 try {
+
                     chars.get(key)
+
                 } catch (e: Throwable) {
-                    "<READ ERROR: ${e.javaClass.simpleName}>"
+
+                    "<READ ERROR: " +
+                        e.javaClass.simpleName +
+                        ">"
                 }
 
-            log(
-                "VALUE:"
-            )
+            log("VALUE:")
 
             log(
-                formatValue(value)
+                safeFormatValue(value)
             )
 
-            log(
-                "VALUE CLASS:"
-            )
+            log("VALUE CLASS:")
 
             log(
                 value?.javaClass?.name
                     ?: "null"
             )
 
-            log(
-                "KEY OBJECT:"
-            )
+            log("KEY JAVA CLASS:")
 
             log(
-                key.toString()
+                key.javaClass.name
             )
         }
     }
 
     // =========================================================
-    // ALL INTERESTING CHARACTERISTIC KEYS
+    // INTERESTING OEM CHARACTERISTIC KEYS
     // =========================================================
 
     private fun dumpInterestingCharacteristicKeys(
@@ -568,233 +1005,117 @@ class MainActivity : AppCompatActivity() {
 
         var count = 0
 
-        for (key in chars.keys) {
+        val sortedKeys =
+            chars.keys.sortedBy {
+                it.name.lowercase(
+                    Locale.US
+                )
+            }
+
+        for (key in sortedKeys) {
 
             val lower =
                 key.name.lowercase(
                     Locale.US
                 )
 
-            if (
+            val interesting =
                 interestingTerms.any {
                     lower.contains(it)
                 }
-            ) {
 
-                count++
-
-                val value =
-                    try {
-                        chars.get(key)
-                    } catch (e: Throwable) {
-                        "<READ ERROR>"
-                    }
-
-                log("")
-                log(
-                    "*** ${key.name}"
-                )
-
-                log(
-                    "VALUE:"
-                )
-
-                log(
-                    truncateValue(
-                        formatValue(value)
-                    )
-                )
-
-                log(
-                    "CLASS:"
-                )
-
-                log(
-                    value?.javaClass?.name
-                        ?: "null"
-                )
-            }
-        }
-
-        log("")
-        log(
-            "Interesting characteristic key count: $count"
-        )
-
-        log("")
-    }
-
-    // =========================================================
-    // KEY TYPE HINTS
-    // =========================================================
-
-    private fun dumpKeyTypeHints(
-        chars: CameraCharacteristics
-    ) {
-
-        log("==============================")
-        log("KEY TYPE / REFLECTION HINTS")
-        log("==============================")
-
-        val allKeys =
-            chars.keys
-
-        for (key in allKeys) {
-
-            if (
-                !targetKeyNames.contains(
-                    key.name
-                )
-            ) {
+            if (!interesting) {
                 continue
             }
+
+            count++
+
+            val value =
+                try {
+
+                    chars.get(key)
+
+                } catch (e: Throwable) {
+
+                    "<READ ERROR: " +
+                        e.javaClass.simpleName +
+                        ">"
+                }
 
             log("")
             log("--------------------------------")
             log(key.name)
             log("--------------------------------")
 
+            log("VALUE:")
+
             log(
-                "Key class: ${key.javaClass.name}"
+                truncateValue(
+                    safeFormatValue(value)
+                )
             )
 
-            try {
+            log("CLASS:")
 
-                val nativeKeyField =
-                    key.javaClass.declaredFields
-                        .firstOrNull {
-                            it.name.contains(
-                                "mKey"
-                            )
-                        }
-
-                if (nativeKeyField != null) {
-
-                    nativeKeyField.isAccessible =
-                        true
-
-                    val nativeKey =
-                        nativeKeyField.get(
-                            key
-                        )
-
-                    log(
-                        "Internal key object:"
-                    )
-
-                    log(
-                        nativeKey?.toString()
-                            ?: "null"
-                    )
-
-                    if (nativeKey != null) {
-
-                        dumpMethods(
-                            nativeKey
-                        )
-                    }
-                }
-
-            } catch (e: Throwable) {
-
-                log(
-                    "Reflection unavailable: " +
-                        e.javaClass.simpleName
-                )
-            }
+            log(
+                value?.javaClass?.name
+                    ?: "null"
+            )
         }
 
         log("")
-    }
-
-    private fun dumpMethods(
-        obj: Any
-    ) {
-
-        try {
-
-            val methods =
-                obj.javaClass.declaredMethods
-
-            for (method in methods) {
-
-                val name =
-                    method.name.lowercase(
-                        Locale.US
-                    )
-
-                if (
-                    name.contains("type") ||
-                    name.contains("name") ||
-                    name.contains("tag")
-                ) {
-
-                    try {
-
-                        method.isAccessible =
-                            true
-
-                        if (
-                            method.parameterTypes.isEmpty()
-                        ) {
-
-                            val result =
-                                method.invoke(obj)
-
-                            log(
-                                "  ${method.name}() = " +
-                                    (result?.toString()
-                                        ?: "null")
-                            )
-                        }
-
-                    } catch (_: Throwable) {
-                    }
-                }
-            }
-
-        } catch (_: Throwable) {
-        }
-    }
-
-    // =========================================================
-    // HELPERS
-    // =========================================================
-
-    private fun sortSizes(
-        sizes: Array<Size>
-    ): List<Size> {
-
-        return sizes.sortedByDescending {
-            pixels(it)
-        }
-    }
-
-    private fun pixels(
-        size: Size
-    ): Long {
-
-        return size.width.toLong() *
-            size.height.toLong()
-    }
-
-    private fun logSize(
-        size: Size
-    ) {
-
-        val mp =
-            pixels(size).toDouble() /
-                1_000_000.0
-
         log(
-            "${size.width} x ${size.height} = " +
-                String.format(
-                    Locale.US,
-                    "%.2f MP",
-                    mp
-                )
+            "Interesting characteristic key count: " +
+                count
         )
     }
+
+    // =========================================================
+    // VENDOR KEY NAME INVENTORY
+    // =========================================================
+
+    private fun dumpAllVendorCharacteristicNames(
+        chars: CameraCharacteristics
+    ) {
+
+        log("")
+        log("==============================")
+        log("VENDOR CHARACTERISTIC KEY NAMES")
+        log("==============================")
+        log("")
+        log(
+            "Names only. Values are omitted here to " +
+                "avoid huge calibration/OTP dumps."
+        )
+
+        val vendorKeys =
+            chars.keys
+                .filter {
+                    !it.name.startsWith(
+                        "android."
+                    )
+                }
+                .sortedBy {
+                    it.name.lowercase(
+                        Locale.US
+                    )
+                }
+
+        log("")
+        log(
+            "Vendor characteristic key count: " +
+                vendorKeys.size
+        )
+
+        for (key in vendorKeys) {
+
+            log(key.name)
+        }
+    }
+
+    // =========================================================
+    // FORMAT NAME
+    // =========================================================
 
     private fun formatName(
         format: Int
@@ -826,21 +1147,140 @@ class MainActivity : AppCompatActivity() {
             ImageFormat.YV12 ->
                 "YV12"
 
+            ImageFormat.NV21 ->
+                "NV21"
+
+            ImageFormat.YUY2 ->
+                "YUY2"
+
+            ImageFormat.DEPTH16 ->
+                "DEPTH16"
+
+            ImageFormat.DEPTH_POINT_CLOUD ->
+                "DEPTH_POINT_CLOUD"
+
+            ImageFormat.DEPTH_JPEG ->
+                "DEPTH_JPEG"
+
             ImageFormat.HEIC ->
                 "HEIC"
 
             54 ->
-                "YCBCR_P010 / 10-bit YUV"
+                "YCBCR_P010 / 10-BIT YUV"
 
             4101 ->
-                "JPEG/R"
+                "JPEG_R / HDR JPEG"
 
             else ->
-                "UNKNOWN/VENDOR"
+                "UNKNOWN_OR_VENDOR_FORMAT"
         }
     }
 
-    private fun formatValue(
+    // =========================================================
+    // CAPABILITY NAME
+    // =========================================================
+
+    private fun capabilityName(
+        value: Int
+    ): String {
+
+        return when (value) {
+
+            CameraCharacteristics
+                .REQUEST_AVAILABLE_CAPABILITIES_BACKWARD_COMPATIBLE ->
+                "BACKWARD_COMPATIBLE"
+
+            CameraCharacteristics
+                .REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR ->
+                "MANUAL_SENSOR"
+
+            CameraCharacteristics
+                .REQUEST_AVAILABLE_CAPABILITIES_MANUAL_POST_PROCESSING ->
+                "MANUAL_POST_PROCESSING"
+
+            CameraCharacteristics
+                .REQUEST_AVAILABLE_CAPABILITIES_RAW ->
+                "RAW"
+
+            CameraCharacteristics
+                .REQUEST_AVAILABLE_CAPABILITIES_PRIVATE_REPROCESSING ->
+                "PRIVATE_REPROCESSING"
+
+            CameraCharacteristics
+                .REQUEST_AVAILABLE_CAPABILITIES_READ_SENSOR_SETTINGS ->
+                "READ_SENSOR_SETTINGS"
+
+            CameraCharacteristics
+                .REQUEST_AVAILABLE_CAPABILITIES_BURST_CAPTURE ->
+                "BURST_CAPTURE"
+
+            CameraCharacteristics
+                .REQUEST_AVAILABLE_CAPABILITIES_YUV_REPROCESSING ->
+                "YUV_REPROCESSING"
+
+            CameraCharacteristics
+                .REQUEST_AVAILABLE_CAPABILITIES_DEPTH_OUTPUT ->
+                "DEPTH_OUTPUT"
+
+            CameraCharacteristics
+                .REQUEST_AVAILABLE_CAPABILITIES_CONSTRAINED_HIGH_SPEED_VIDEO ->
+                "CONSTRAINED_HIGH_SPEED_VIDEO"
+
+            else ->
+                "CAPABILITY_$value"
+        }
+    }
+
+    // =========================================================
+    // SIZE HELPERS
+    // =========================================================
+
+    private fun sortSizes(
+        sizes: Array<Size>
+    ): List<Size> {
+
+        return sizes.sortedByDescending {
+            pixels(it)
+        }
+    }
+
+    private fun pixels(
+        size: Size
+    ): Long {
+
+        return (
+            size.width.toLong() *
+                size.height.toLong()
+            )
+    }
+
+    private fun logSize(
+        size: Size
+    ) {
+
+        val count =
+            pixels(size)
+
+        val mp =
+            count.toDouble() /
+                1_000_000.0
+
+        log(
+            "${size.width} x ${size.height}" +
+                " = " +
+                String.format(
+                    Locale.US,
+                    "%.2f MP",
+                    mp
+                )
+        )
+    }
+
+    // =========================================================
+    // VALUE FORMATTING
+    // =========================================================
+
+    private fun safeFormatValue(
         value: Any?
     ): String {
 
@@ -848,34 +1288,61 @@ class MainActivity : AppCompatActivity() {
             return "null"
         }
 
-        return when (value) {
+        return try {
 
-            is IntArray ->
-                value.contentToString()
+            when (value) {
 
-            is LongArray ->
-                value.contentToString()
+                is IntArray ->
+                    value.contentToString()
 
-            is FloatArray ->
-                value.contentToString()
+                is LongArray ->
+                    value.contentToString()
 
-            is DoubleArray ->
-                value.contentToString()
+                is FloatArray ->
+                    value.contentToString()
 
-            is ByteArray ->
-                value.contentToString()
+                is DoubleArray ->
+                    value.contentToString()
 
-            is ShortArray ->
-                value.contentToString()
+                is ByteArray -> {
 
-            is BooleanArray ->
-                value.contentToString()
+                    if (value.size > 512) {
 
-            is Array<*> ->
-                value.contentDeepToString()
+                        "ByteArray(size=${value.size}) " +
+                            value.take(128)
+                                .joinToString(
+                                    prefix = "[",
+                                    postfix =
+                                        ", ... TRUNCATED]"
+                                )
 
-            else ->
-                value.toString()
+                    } else {
+
+                        value.contentToString()
+                    }
+                }
+
+                is ShortArray ->
+                    value.contentToString()
+
+                is BooleanArray ->
+                    value.contentToString()
+
+                is CharArray ->
+                    value.concatToString()
+
+                is Array<*> ->
+                    value.contentDeepToString()
+
+                else ->
+                    value.toString()
+            }
+
+        } catch (e: Throwable) {
+
+            "<FORMAT ERROR: " +
+                e.javaClass.simpleName +
+                ">"
         }
     }
 
@@ -884,7 +1351,7 @@ class MainActivity : AppCompatActivity() {
     ): String {
 
         val max =
-            2000
+            3000
 
         return if (
             value.length <= max
@@ -898,9 +1365,15 @@ class MainActivity : AppCompatActivity() {
                 0,
                 max
             ) +
-                "\n...[TRUNCATED ${value.length - max} chars]"
+                "\n...[TRUNCATED " +
+                (value.length - max) +
+                " chars]"
         }
     }
+
+    // =========================================================
+    // LOG
+    // =========================================================
 
     private fun log(
         message: String
