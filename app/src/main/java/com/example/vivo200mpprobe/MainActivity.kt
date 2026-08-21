@@ -27,10 +27,8 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val CAMERA_ID = "3"
-
         private const val WIDTH = 16320
         private const val HEIGHT = 12288
-
         private const val REQUEST_CAMERA = 1001
     }
 
@@ -47,35 +45,21 @@ class MainActivity : AppCompatActivity() {
     private lateinit var scrollView: ScrollView
     private lateinit var startButton: Button
 
-    private val scenarios =
-        intArrayOf(
-            1,
-            3,
-            5,
-            7
-        )
+    private val advanceValues = intArrayOf(0, 1)
+    private val remosaicValues = intArrayOf(0, 1)
+    private val seamlessValues = intArrayOf(0, 1)
+    private val engineerValues = intArrayOf(0, 1, 2)
 
-    private val sensorModes =
-        intArrayOf(
-            0,
-            1,
-            2,
-            3
-        )
-
-    private var scenarioIndex = 0
-    private var modeIndex = 0
-
+    private var testIndex = 0
     private var testRunning = false
     private var waitingForImage = false
 
-    private var currentScenario = 0
-    private var currentMode = 0
+    private var currentAdvance = 0
+    private var currentRemosaic = 0
+    private var currentSeamless = 0
+    private var currentEngineer = 0
 
-    // ---------------------------------------------------------
-    // Vivo controls
-    // ---------------------------------------------------------
-
+    // Known Vivo high-resolution controls
     private val aiHighResolutionKey =
         CaptureRequest.Key(
             "vivo.control.ai_highresolution",
@@ -106,19 +90,28 @@ class MainActivity : AppCompatActivity() {
             IntArray::class.java
         )
 
-    // ---------------------------------------------------------
-    // MediaTek controls
-    // ---------------------------------------------------------
-
-    private val sensorScenarioKey =
+    // Full-resolution / remosaic controls
+    private val advanceFullsizeKey =
         CaptureRequest.Key(
-            "com.mediatek.seamlessfeature.sensorScenario",
+            "vivo.control.advance_fullsize",
             Int::class.javaObjectType
         )
 
-    private val forceSensorModeKey =
+    private val remosaicEnableKey =
         CaptureRequest.Key(
-            "com.mediatek.seamlessfeature.forceSensorMode",
+            "com.mediatek.control.capture.remosaicenable",
+            Int::class.javaObjectType
+        )
+
+    private val seamlessRemosaicEnableKey =
+        CaptureRequest.Key(
+            "com.mediatek.control.capture.seamless.remosaicenable",
+            Int::class.javaObjectType
+        )
+
+    private val engineerRemosaicModeKey =
+        CaptureRequest.Key(
+            "vivo.control.EngineerRemosaicMode",
             Int::class.javaObjectType
         )
 
@@ -131,17 +124,17 @@ class MainActivity : AppCompatActivity() {
         cameraManager =
             getSystemService(CAMERA_SERVICE) as CameraManager
 
-        log("VIVO 200 MP SENSOR MATRIX TEST")
+        log("VIVO 200 MP REMOSAIC MATRIX TEST")
         log("==============================")
         log("")
         log("Camera ID: $CAMERA_ID")
         log("Requested JPEG: $WIDTH x $HEIGHT")
         log("")
-        log("Scenarios:")
-        log(scenarios.contentToString())
-        log("")
-        log("Sensor modes:")
-        log(sensorModes.contentToString())
+        log("24 combinations:")
+        log("advance_fullsize = [0, 1]")
+        log("remosaicenable = [0, 1]")
+        log("seamless.remosaicenable = [0, 1]")
+        log("EngineerRemosaicMode = [0, 1, 2]")
         log("")
 
         startButton.isEnabled = false
@@ -152,23 +145,19 @@ class MainActivity : AppCompatActivity() {
                 Manifest.permission.CAMERA
             ) != PackageManager.PERMISSION_GRANTED
         ) {
-
             ActivityCompat.requestPermissions(
                 this,
                 arrayOf(Manifest.permission.CAMERA),
                 REQUEST_CAMERA
             )
-
         } else {
-
             initializeCamera()
         }
     }
 
     private fun createUi() {
 
-        val root =
-            LinearLayout(this)
+        val root = LinearLayout(this)
 
         root.orientation =
             LinearLayout.VERTICAL
@@ -184,18 +173,15 @@ class MainActivity : AppCompatActivity() {
             Button(this)
 
         startButton.text =
-            "START SENSOR MODE TEST"
+            "START REMOSAIC TEST"
 
         startButton.setOnClickListener {
-
             if (!testRunning) {
                 startMatrixTest()
             }
         }
 
-        root.addView(
-            startButton
-        )
+        root.addView(startButton)
 
         scrollView =
             ScrollView(this)
@@ -203,8 +189,7 @@ class MainActivity : AppCompatActivity() {
         logText =
             TextView(this)
 
-        logText.textSize =
-            15f
+        logText.textSize = 15f
 
         logText.setPadding(
             0,
@@ -213,9 +198,7 @@ class MainActivity : AppCompatActivity() {
             120
         )
 
-        scrollView.addView(
-            logText
-        )
+        scrollView.addView(logText)
 
         root.addView(
             scrollView,
@@ -251,87 +234,57 @@ class MainActivity : AppCompatActivity() {
                     2
                 )
 
-            jpegReader
-                ?.setOnImageAvailableListener(
-                    { reader ->
+            jpegReader?.setOnImageAvailableListener(
+                { reader ->
 
-                        var image: Image? = null
+                    var image: Image? = null
 
-                        try {
+                    try {
 
-                            image =
-                                reader.acquireNextImage()
+                        image =
+                            reader.acquireNextImage()
 
-                            if (image == null) {
+                        if (image == null) {
 
-                                log(
-                                    "ImageReader returned null."
-                                )
-
-                                onTestFinished(
-                                    false,
-                                    0,
-                                    0
-                                )
-
-                                return@setOnImageAvailableListener
-                            }
-
-                            processImage(
-                                image
-                            )
-
-                        } catch (
-                            e: Throwable
-                        ) {
-
-                            log("")
-                            log("IMAGE ERROR")
                             log(
-                                e.javaClass.simpleName
-                            )
-                            log(
-                                e.message ?: ""
+                                "ImageReader returned null."
                             )
 
-                            onTestFinished(
-                                false,
-                                0,
-                                0
-                            )
+                            onTestFinished(false)
 
-                        } finally {
-
-                            try {
-                                image?.close()
-                            } catch (_: Throwable) {
-                            }
+                            return@setOnImageAvailableListener
                         }
 
-                    },
+                        processImage(image)
 
-                    backgroundHandler
-                )
+                    } catch (e: Throwable) {
 
-            log(
-                "ImageReader created:"
+                        log("")
+                        log("IMAGE ERROR")
+                        log(e.javaClass.simpleName)
+                        log(e.message ?: "")
+
+                        onTestFinished(false)
+
+                    } finally {
+
+                        try {
+                            image?.close()
+                        } catch (_: Throwable) {
+                        }
+                    }
+
+                },
+                backgroundHandler
             )
 
-            log(
-                "$WIDTH x $HEIGHT"
-            )
+            log("ImageReader created:")
+            log("$WIDTH x $HEIGHT")
 
-        } catch (
-            e: Throwable
-        ) {
+        } catch (e: Throwable) {
 
-            log(
-                "ImageReader failed."
-            )
-
-            log(
-                e.toString()
-            )
+            log("ImageReader failed.")
+            log(e.toString())
         }
     }
 
@@ -353,7 +306,6 @@ class MainActivity : AppCompatActivity() {
         try {
 
             cameraManager.openCamera(
-
                 CAMERA_ID,
 
                 object :
@@ -363,8 +315,7 @@ class MainActivity : AppCompatActivity() {
                         camera: CameraDevice
                     ) {
 
-                        cameraDevice =
-                            camera
+                        cameraDevice = camera
 
                         log(
                             "SUCCESS: Camera 3 opened."
@@ -382,9 +333,7 @@ class MainActivity : AppCompatActivity() {
                         )
 
                         camera.close()
-
-                        cameraDevice =
-                            null
+                        cameraDevice = null
                     }
 
                     override fun onError(
@@ -398,18 +347,14 @@ class MainActivity : AppCompatActivity() {
                         )
 
                         camera.close()
-
-                        cameraDevice =
-                            null
+                        cameraDevice = null
                     }
                 },
 
                 backgroundHandler
             )
 
-        } catch (
-            e: Throwable
-        ) {
+        } catch (e: Throwable) {
 
             log(
                 "Open camera failed."
@@ -435,10 +380,9 @@ class MainActivity : AppCompatActivity() {
 
         try {
 
+            @Suppress("DEPRECATION")
             camera.createCaptureSession(
-                listOf(
-                    reader.surface
-                ),
+                listOf(reader.surface),
 
                 object :
                     CameraCaptureSession.StateCallback() {
@@ -457,13 +401,11 @@ class MainActivity : AppCompatActivity() {
 
                         log("")
                         log(
-                            "Ready to test 16 combinations."
+                            "Ready to test 24 combinations."
                         )
 
                         runOnUiThread {
-
-                            startButton
-                                .isEnabled =
+                            startButton.isEnabled =
                                 true
                         }
                     }
@@ -481,9 +423,7 @@ class MainActivity : AppCompatActivity() {
                 backgroundHandler
             )
 
-        } catch (
-            e: Throwable
-        ) {
+        } catch (e: Throwable) {
 
             log(
                 "Session creation error."
@@ -497,25 +437,18 @@ class MainActivity : AppCompatActivity() {
 
     private fun startMatrixTest() {
 
-        scenarioIndex = 0
-        modeIndex = 0
-
+        testIndex = 0
         testRunning = true
         waitingForImage = false
 
         runOnUiThread {
-
-            startButton
-                .isEnabled =
-                false
+            startButton.isEnabled = false
         }
 
         log("")
-        log("")
         log("==============================")
-        log("STARTING SENSOR MATRIX")
+        log("STARTING REMOSAIC MATRIX")
         log("==============================")
-        log("")
 
         runCurrentCombination()
     }
@@ -526,43 +459,58 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        if (
-            scenarioIndex >=
-            scenarios.size
-        ) {
-
+        if (testIndex >= 24) {
             finishMatrix()
             return
         }
 
-        currentScenario =
-            scenarios[
-                scenarioIndex
+        var n = testIndex
+
+        currentEngineer =
+            engineerValues[
+                n % engineerValues.size
             ]
 
-        currentMode =
-            sensorModes[
-                modeIndex
+        n /= engineerValues.size
+
+        currentSeamless =
+            seamlessValues[
+                n % seamlessValues.size
             ]
 
-        log("")
+        n /= seamlessValues.size
+
+        currentRemosaic =
+            remosaicValues[
+                n % remosaicValues.size
+            ]
+
+        n /= remosaicValues.size
+
+        currentAdvance =
+            advanceValues[
+                n % advanceValues.size
+            ]
+
         log("")
         log("================================")
+        log("TEST ${testIndex + 1}/24")
+        log("advance_fullsize = $currentAdvance")
+        log("remosaicenable = $currentRemosaic")
         log(
-            "TEST: Scenario $currentScenario / Mode $currentMode"
+            "seamless.remosaicenable = " +
+                currentSeamless
+        )
+        log(
+            "EngineerRemosaicMode = " +
+                currentEngineer
         )
         log("================================")
 
-        captureCombination(
-            currentScenario,
-            currentMode
-        )
+        captureCombination()
     }
 
-    private fun captureCombination(
-        scenario: Int,
-        sensorMode: Int
-    ) {
+    private fun captureCombination() {
 
         val camera =
             cameraDevice
@@ -578,10 +526,6 @@ class MainActivity : AppCompatActivity() {
             session == null ||
             reader == null
         ) {
-
-            log(
-                "Camera/session/reader missing."
-            )
 
             nextCombination()
             return
@@ -614,77 +558,51 @@ class MainActivity : AppCompatActivity() {
             )
 
             log("")
-            log(
-                "Applying Vivo 200 MP controls..."
-            )
+            log("Known Vivo 200 MP controls:")
 
             applyVivoControls(
                 builder
             )
 
             log("")
-            log(
-                "Applying MediaTek controls..."
+            log("Remosaic controls:")
+
+            setIntKey(
+                builder,
+                advanceFullsizeKey,
+                currentAdvance,
+                "advance_fullsize"
             )
 
-            try {
+            setIntKey(
+                builder,
+                remosaicEnableKey,
+                currentRemosaic,
+                "remosaicenable"
+            )
 
-                builder.set(
-                    sensorScenarioKey,
-                    scenario
-                )
+            setIntKey(
+                builder,
+                seamlessRemosaicEnableKey,
+                currentSeamless,
+                "seamless.remosaicenable"
+            )
 
-                log(
-                    "sensorScenario = $scenario"
-                )
-
-            } catch (
-                e: Throwable
-            ) {
-
-                log(
-                    "sensorScenario FAILED"
-                )
-
-                log(
-                    e.message ?: ""
-                )
-            }
-
-            try {
-
-                builder.set(
-                    forceSensorModeKey,
-                    sensorMode
-                )
-
-                log(
-                    "forceSensorMode = $sensorMode"
-                )
-
-            } catch (
-                e: Throwable
-            ) {
-
-                log(
-                    "forceSensorMode FAILED"
-                )
-
-                log(
-                    e.message ?: ""
-                )
-            }
+            setIntKey(
+                builder,
+                engineerRemosaicModeKey,
+                currentEngineer,
+                "EngineerRemosaicMode"
+            )
 
             waitingForImage =
                 true
 
             session.capture(
-
                 builder.build(),
 
                 object :
-                    CameraCaptureSession
-                        .CaptureCallback() {
+                    CameraCaptureSession.CaptureCallback() {
 
                     override fun onCaptureStarted(
                         session:
@@ -698,11 +616,7 @@ class MainActivity : AppCompatActivity() {
                     ) {
 
                         log(
-                            "Capture started."
-                        )
-
-                        log(
-                            "Frame: $frameNumber"
+                            "Capture started. Frame: $frameNumber"
                         )
                     }
 
@@ -718,10 +632,6 @@ class MainActivity : AppCompatActivity() {
                         log(
                             "Capture request completed."
                         )
-
-                        inspectResult(
-                            result
-                        )
                     }
 
                     override fun onCaptureFailed(
@@ -733,13 +643,8 @@ class MainActivity : AppCompatActivity() {
                             CaptureFailure
                     ) {
 
-                        log("")
                         log(
-                            "CAPTURE FAILED"
-                        )
-
-                        log(
-                            "Reason: ${failure.reason}"
+                            "CAPTURE FAILED: ${failure.reason}"
                         )
 
                         waitingForImage =
@@ -757,21 +662,12 @@ class MainActivity : AppCompatActivity() {
                 backgroundHandler
             )
 
-        } catch (
-            e: Throwable
-        ) {
-
-            log("")
-            log(
-                "CAPTURE EXCEPTION"
-            )
+        } catch (e: Throwable) {
 
             log(
-                e.javaClass.simpleName
-            )
-
-            log(
-                e.message ?: ""
+                "CAPTURE EXCEPTION: " +
+                    "${e.javaClass.simpleName}: " +
+                    (e.message ?: "")
             )
 
             waitingForImage =
@@ -782,6 +678,33 @@ class MainActivity : AppCompatActivity() {
                     nextCombination()
                 },
                 500
+            )
+        }
+    }
+
+    private fun setIntKey(
+        builder: CaptureRequest.Builder,
+        key: CaptureRequest.Key<Int>,
+        value: Int,
+        label: String
+    ) {
+
+        try {
+
+            builder.set(
+                key,
+                value
+            )
+
+            log(
+                "$label = $value"
+            )
+
+        } catch (e: Throwable) {
+
+            log(
+                "$label FAILED: " +
+                    (e.message ?: "")
             )
         }
     }
@@ -802,9 +725,7 @@ class MainActivity : AppCompatActivity() {
                 "ai_highresolution = 0"
             )
 
-        } catch (
-            e: Throwable
-        ) {
+        } catch (_: Throwable) {
 
             log(
                 "ai_highresolution FAILED"
@@ -822,9 +743,7 @@ class MainActivity : AppCompatActivity() {
                 "portrait_high_resolution = 1"
             )
 
-        } catch (
-            e: Throwable
-        ) {
+        } catch (_: Throwable) {
 
             log(
                 "portrait_high_resolution FAILED"
@@ -842,9 +761,7 @@ class MainActivity : AppCompatActivity() {
                 "ultra_highresolution = 1"
             )
 
-        } catch (
-            e: Throwable
-        ) {
+        } catch (_: Throwable) {
 
             log(
                 "ultra_highresolution FAILED"
@@ -862,9 +779,7 @@ class MainActivity : AppCompatActivity() {
                 "real200mp_switch_on = 1"
             )
 
-        } catch (
-            e: Throwable
-        ) {
+        } catch (_: Throwable) {
 
             log(
                 "real200mp_switch_on FAILED"
@@ -886,58 +801,10 @@ class MainActivity : AppCompatActivity() {
                 "streamsUsage = [2, 1, 0]"
             )
 
-        } catch (
-            e: Throwable
-        ) {
+        } catch (_: Throwable) {
 
             log(
                 "streamsUsage FAILED"
-            )
-        }
-    }
-
-    private fun inspectResult(
-        result:
-            TotalCaptureResult
-    ) {
-
-        try {
-
-            val scenario =
-                result.get(
-                    CaptureResult.Key(
-                        "com.mediatek.seamlessfeature.sensorScenario",
-                        Int::class.javaObjectType
-                    )
-                )
-
-            val mode =
-                result.get(
-                    CaptureResult.Key(
-                        "com.mediatek.seamlessfeature.forceSensorMode",
-                        Int::class.javaObjectType
-                    )
-                )
-
-            log("")
-            log(
-                "HAL echoed:"
-            )
-
-            log(
-                "sensorScenario = ${scenario ?: "null"}"
-            )
-
-            log(
-                "forceSensorMode = ${mode ?: "null"}"
-            )
-
-        } catch (
-            e: Throwable
-        ) {
-
-            log(
-                "Could not read HAL result keys."
             )
         }
     }
@@ -946,9 +813,7 @@ class MainActivity : AppCompatActivity() {
         image: Image
     ) {
 
-        if (
-            !waitingForImage
-        ) {
+        if (!waitingForImage) {
 
             log(
                 "Unexpected image received."
@@ -980,9 +845,7 @@ class MainActivity : AppCompatActivity() {
             )
 
         log("")
-        log(
-            "JPEG RESULT"
-        )
+        log("JPEG RESULT")
 
         log(
             "ImageReader = " +
@@ -993,9 +856,7 @@ class MainActivity : AppCompatActivity() {
             "Bytes = ${bytes.size}"
         )
 
-        if (
-            dims == null
-        ) {
+        if (dims == null) {
 
             log(
                 "JPEG SOF could not be parsed."
@@ -1003,17 +864,15 @@ class MainActivity : AppCompatActivity() {
 
             saveTestImage(
                 bytes,
-                currentScenario,
-                currentMode,
+                currentAdvance,
+                currentRemosaic,
+                currentSeamless,
+                currentEngineer,
                 0,
                 0
             )
 
-            onTestFinished(
-                false,
-                0,
-                0
-            )
+            onTestFinished(false)
 
             return
         }
@@ -1045,8 +904,10 @@ class MainActivity : AppCompatActivity() {
 
         saveTestImage(
             bytes,
-            currentScenario,
-            currentMode,
+            currentAdvance,
+            currentRemosaic,
+            currentSeamless,
+            currentEngineer,
             width,
             height
         )
@@ -1055,9 +916,7 @@ class MainActivity : AppCompatActivity() {
             width == WIDTH &&
                 height == HEIGHT
 
-        if (
-            success
-        ) {
+        if (success) {
 
             log("")
             log(
@@ -1073,11 +932,19 @@ class MainActivity : AppCompatActivity() {
             )
 
             log(
-                "sensorScenario = $currentScenario"
+                "advance_fullsize = $currentAdvance"
             )
 
             log(
-                "forceSensorMode = $currentMode"
+                "remosaicenable = $currentRemosaic"
+            )
+
+            log(
+                "seamless.remosaicenable = $currentSeamless"
+            )
+
+            log(
+                "EngineerRemosaicMode = $currentEngineer"
             )
 
             log(
@@ -1092,30 +959,21 @@ class MainActivity : AppCompatActivity() {
                 startButton.text =
                     "200 MP FOUND"
 
-                startButton
-                    .isEnabled =
+                startButton.isEnabled =
                     false
             }
 
         } else {
 
-            onTestFinished(
-                false,
-                width,
-                height
-            )
+            onTestFinished(false)
         }
     }
 
     private fun onTestFinished(
-        success: Boolean,
-        width: Int,
-        height: Int
+        success: Boolean
     ) {
 
-        if (
-            success
-        ) {
+        if (success) {
             return
         }
 
@@ -1129,21 +987,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun nextCombination() {
 
-        modeIndex++
+        testIndex++
 
-        if (
-            modeIndex >=
-            sensorModes.size
-        ) {
-
-            modeIndex = 0
-            scenarioIndex++
-        }
-
-        if (
-            scenarioIndex >=
-            scenarios.size
-        ) {
+        if (testIndex >= 24) {
 
             finishMatrix()
 
@@ -1178,38 +1024,29 @@ class MainActivity : AppCompatActivity() {
             startButton.text =
                 "TEST COMPLETE"
 
-            startButton
-                .isEnabled =
+            startButton.isEnabled =
                 true
         }
     }
 
     private fun saveTestImage(
-        bytes:
-            ByteArray,
-        scenario:
-            Int,
-        mode:
-            Int,
-        width:
-            Int,
-        height:
-            Int
+        bytes: ByteArray,
+        advance: Int,
+        remosaic: Int,
+        seamless: Int,
+        engineer: Int,
+        width: Int,
+        height: Int
     ) {
 
         try {
 
             val directory =
                 getExternalFilesDir(
-                    Environment
-                        .DIRECTORY_PICTURES
-                )
-                    ?: return
+                    Environment.DIRECTORY_PICTURES
+                ) ?: return
 
-            if (
-                !directory.exists()
-            ) {
-
+            if (!directory.exists()) {
                 directory.mkdirs()
             }
 
@@ -1224,7 +1061,9 @@ class MainActivity : AppCompatActivity() {
             val file =
                 File(
                     directory,
-                    "S${scenario}_M${mode}_${width}x${height}_$timestamp.jpg"
+                    "A${advance}_R${remosaic}_S${seamless}" +
+                        "_E${engineer}_${width}x${height}" +
+                        "_$timestamp.jpg"
                 )
 
             FileOutputStream(
@@ -1240,9 +1079,7 @@ class MainActivity : AppCompatActivity() {
                 "Saved: ${file.name}"
             )
 
-        } catch (
-            e: Throwable
-        ) {
+        } catch (e: Throwable) {
 
             log(
                 "Save failed: ${e.message}"
@@ -1251,13 +1088,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun readJpegDimensions(
-        data:
-            ByteArray
+        data: ByteArray
     ): Pair<Int, Int>? {
 
-        if (
-            data.size < 4
-        ) {
+        if (data.size < 4) {
             return null
         }
 
@@ -1276,8 +1110,8 @@ class MainActivity : AppCompatActivity() {
         ) {
 
             if (
-                (data[offset].toInt() and 0xFF) !=
-                0xFF
+                (data[offset].toInt() and 0xFF)
+                != 0xFF
             ) {
 
                 offset++
@@ -1285,19 +1119,15 @@ class MainActivity : AppCompatActivity() {
             }
 
             while (
-                offset <
-                data.size &&
-                (data[offset].toInt() and 0xFF) ==
-                0xFF
+                offset < data.size &&
+                (data[offset].toInt() and 0xFF)
+                == 0xFF
             ) {
 
                 offset++
             }
 
-            if (
-                offset >=
-                data.size
-            ) {
+            if (offset >= data.size) {
                 break
             }
 
@@ -1311,16 +1141,13 @@ class MainActivity : AppCompatActivity() {
             if (
                 marker == 0xD8 ||
                 marker == 0xD9 ||
-                marker in
-                    0xD0..0xD7 ||
+                marker in 0xD0..0xD7 ||
                 marker == 0x01
             ) {
                 continue
             }
 
-            if (
-                marker == 0xDA
-            ) {
+            if (marker == 0xDA) {
                 break
             }
 
@@ -1345,9 +1172,7 @@ class MainActivity : AppCompatActivity() {
                             0xFF
                         )
 
-            if (
-                length < 2
-            ) {
+            if (length < 2) {
                 return null
             }
 
@@ -1406,8 +1231,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun isSofMarker(
-        marker:
-            Int
+        marker: Int
     ): Boolean {
 
         return marker == 0xC0 ||
@@ -1426,8 +1250,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun log(
-        message:
-            String
+        message: String
     ) {
 
         runOnUiThread {
@@ -1449,7 +1272,7 @@ class MainActivity : AppCompatActivity() {
 
         backgroundThread =
             HandlerThread(
-                "VivoSensorMatrix"
+                "VivoRemosaicMatrix"
             )
 
         backgroundThread.start()
@@ -1464,33 +1287,24 @@ class MainActivity : AppCompatActivity() {
 
         try {
 
-            backgroundThread
-                .quitSafely()
+            backgroundThread.quitSafely()
+            backgroundThread.join()
 
-            backgroundThread
-                .join()
-
-        } catch (
-            _: Throwable
-        ) {
+        } catch (_: Throwable) {
         }
     }
 
     override fun onRequestPermissionsResult(
-        requestCode:
-            Int,
-        permissions:
-            Array<out String>,
-        grantResults:
-            IntArray
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
     ) {
 
-        super
-            .onRequestPermissionsResult(
-                requestCode,
-                permissions,
-                grantResults
-            )
+        super.onRequestPermissionsResult(
+            requestCode,
+            permissions,
+            grantResults
+        )
 
         if (
             requestCode ==
@@ -1506,8 +1320,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
 
-        testRunning =
-            false
+        testRunning = false
 
         try {
             captureSession?.close()
