@@ -22,11 +22,7 @@ class ShellUserService : ICommandService.Stub() {
         return Process.myPid()
     }
 
-    override fun runCommand(command: ByteArray?): ByteArray {
-
-        if (command == null) {
-            return "ERROR: command was null".toByteArray()
-        }
+    override fun runCommand(command: ByteArray): ByteArray {
 
         val commandText =
             command.toString(Charsets.UTF_8)
@@ -58,7 +54,6 @@ class ShellUserService : ICommandService.Stub() {
                 reader.readLine()
                     .also { line = it } != null
             ) {
-
                 result.append(line)
                 result.append('\n')
             }
