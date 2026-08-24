@@ -1,6 +1,6 @@
 plugins {
-    alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
 }
 
 android {
@@ -11,6 +11,7 @@ android {
         applicationId = "com.example.vivo200mpprobe"
         minSdk = 26
         targetSdk = 36
+
         versionCode = 1
         versionName = "1.0"
     }
@@ -23,6 +24,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+
         isCoreLibraryDesugaringEnabled = true
     }
 
@@ -32,6 +34,7 @@ android {
 }
 
 dependencies {
+
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
 
