@@ -22,42 +22,74 @@ class ShellUserService : ICommandService.Stub() {
         return Process.myPid()
     }
 
-    override fun runCommand(command: String): String {
+    override fun runCommand(command: ByteArray?): ByteArray {
+
+        if (command == null) {
+            return "ERROR: command was null".toByteArray()
+        }
+
+        val commandText =
+            command.toString(Charsets.UTF_8)
+
         return try {
-            val shellProcess = ProcessBuilder(
-                "/system/bin/sh",
-                "-c",
-                command
-            )
-                .redirectErrorStream(true)
-                .start()
 
-            val reader = BufferedReader(
-                InputStreamReader(shellProcess.inputStream)
-            )
+            val shellProcess =
+                ProcessBuilder(
+                    "/system/bin/sh",
+                    "-c",
+                    commandText
+                )
+                    .redirectErrorStream(true)
+                    .start()
 
-            val result = StringBuilder()
+            val reader =
+                BufferedReader(
+                    InputStreamReader(
+                        shellProcess.inputStream
+                    )
+                )
+
+            val result =
+                StringBuilder()
+
             var line: String?
 
-            while (reader.readLine().also { line = it } != null) {
+            while (
+                reader.readLine()
+                    .also { line = it } != null
+            ) {
+
                 result.append(line)
                 result.append('\n')
             }
 
-            val finished = shellProcess.waitFor(
-                25,
-                TimeUnit.SECONDS
-            )
+            val finished =
+                shellProcess.waitFor(
+                    25,
+                    TimeUnit.SECONDS
+                )
 
             if (!finished) {
+
                 shellProcess.destroyForcibly()
-                result.append("\n[TIMEOUT - PROCESS KILLED]\n")
+
+                result.append(
+                    "\n[TIMEOUT - PROCESS KILLED]\n"
+                )
             }
 
-            result.toString()
+            result
+                .toString()
+                .toByteArray(Charsets.UTF_8)
 
         } catch (e: Throwable) {
-            "ERROR: ${e.javaClass.name}: ${e.message}"
+
+            (
+                "ERROR: " +
+                    e.javaClass.name +
+                    ": " +
+                    e.message
+            ).toByteArray(Charsets.UTF_8)
         }
     }
 }
