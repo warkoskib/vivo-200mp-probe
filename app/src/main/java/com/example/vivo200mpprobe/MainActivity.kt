@@ -42,6 +42,10 @@ class MainActivity : Activity() {
             .tag("vivo_camera_probe_shell")
     }
 
+    // ============================================================
+    // SHIZUKU LISTENERS
+    // ============================================================
+
     private val binderReceivedListener =
         Shizuku.OnBinderReceivedListener {
 
@@ -93,6 +97,10 @@ class MainActivity : Activity() {
             }
         }
 
+    // ============================================================
+    // USER SERVICE CONNECTION
+    // ============================================================
+
     private val serviceConnection =
         object :
             ServiceConnection {
@@ -116,16 +124,16 @@ class MainActivity : Activity() {
 
                     log(
                         "Service UID = " +
-                            commandService!!.uid
+                            commandService!!.uid()
                     )
 
                     log(
                         "Service PID = " +
-                            commandService!!.pid
+                            commandService!!.pid()
                     )
 
                     if (
-                        commandService!!.uid == 2000
+                        commandService!!.uid() == 2000
                     ) {
 
                         log(
@@ -164,6 +172,10 @@ class MainActivity : Activity() {
             }
         }
 
+    // ============================================================
+    // ACTIVITY START
+    // ============================================================
+
     override fun onCreate(
         savedInstanceState: Bundle?
     ) {
@@ -190,6 +202,7 @@ class MainActivity : Activity() {
 
             log("")
             log("SHIZUKU LISTENER SETUP ERROR")
+
             log(
                 "${e.javaClass.simpleName}: ${e.message}"
             )
@@ -204,6 +217,7 @@ class MainActivity : Activity() {
         )
 
         log("")
+
         log(
             "This app runs shell-level diagnostics"
         )
@@ -214,6 +228,10 @@ class MainActivity : Activity() {
 
         showShizukuStatus()
     }
+
+    // ============================================================
+    // UI
+    // ============================================================
 
     private fun buildUi() {
 
@@ -377,6 +395,10 @@ class MainActivity : Activity() {
         setContentView(root)
     }
 
+    // ============================================================
+    // SHIZUKU STATUS
+    // ============================================================
+
     private fun showShizukuStatus() {
 
         log("")
@@ -448,6 +470,10 @@ class MainActivity : Activity() {
         }
     }
 
+    // ============================================================
+    // REQUEST SHIZUKU PERMISSION
+    // ============================================================
+
     private fun requestShizukuPermission() {
 
         try {
@@ -493,6 +519,10 @@ class MainActivity : Activity() {
         }
     }
 
+    // ============================================================
+    // BIND SHELL SERVICE
+    // ============================================================
+
     private fun bindShellService() {
 
         try {
@@ -519,6 +549,7 @@ class MainActivity : Activity() {
             }
 
             log("")
+
             log(
                 "Starting Shizuku UserService..."
             )
@@ -540,6 +571,10 @@ class MainActivity : Activity() {
         }
     }
 
+    // ============================================================
+    // SHELL COMMAND RUNNER
+    // ============================================================
+
     private fun shell(
         command: String
     ) {
@@ -550,6 +585,7 @@ class MainActivity : Activity() {
         if (service == null) {
 
             log("")
+
             log(
                 "Shell service is not connected."
             )
@@ -562,6 +598,7 @@ class MainActivity : Activity() {
         }
 
         log("")
+
         log(
             "$ $command"
         )
@@ -571,7 +608,7 @@ class MainActivity : Activity() {
             try {
 
                 val result =
-                    service.exec(
+                    service.runCommand(
                         command
                     )
 
@@ -597,6 +634,10 @@ class MainActivity : Activity() {
         }.start()
     }
 
+    // ============================================================
+    // CAMERA DIAGNOSTICS
+    // ============================================================
+
     private fun runCameraDiagnostics() {
 
         shell(
@@ -619,6 +660,10 @@ class MainActivity : Activity() {
         )
     }
 
+    // ============================================================
+    // VIVO CAMERA PACKAGE
+    // ============================================================
+
     private fun dumpVivoCameraPackage() {
 
         shell(
@@ -637,6 +682,10 @@ class MainActivity : Activity() {
             """.trimIndent()
         )
     }
+
+    // ============================================================
+    // FILESYSTEM SCAN
+    // ============================================================
 
     private fun scanCameraFilesystem() {
 
@@ -677,6 +726,10 @@ class MainActivity : Activity() {
         )
     }
 
+    // ============================================================
+    // CAMERA PROPERTIES
+    // ============================================================
+
     private fun dumpCameraProperties() {
 
         shell(
@@ -689,6 +742,10 @@ class MainActivity : Activity() {
             """.trimIndent()
         )
     }
+
+    // ============================================================
+    // LOGCAT
+    // ============================================================
 
     private fun clearLogcat() {
 
@@ -713,6 +770,10 @@ class MainActivity : Activity() {
             """.trimIndent()
         )
     }
+
+    // ============================================================
+    // LAUNCH VIVO CAMERA
+    // ============================================================
 
     private fun launchVivoCamera() {
 
@@ -766,6 +827,10 @@ class MainActivity : Activity() {
         }
     }
 
+    // ============================================================
+    // COPY OUTPUT
+    // ============================================================
+
     private fun copyOutput() {
 
         val clipboard =
@@ -787,6 +852,10 @@ class MainActivity : Activity() {
         ).show()
     }
 
+    // ============================================================
+    // LOG
+    // ============================================================
+
     private fun log(
         message: String
     ) {
@@ -802,12 +871,17 @@ class MainActivity : Activity() {
                     "\n"
                 )
             ) {
+
                 output.append(
                     "\n"
                 )
             }
         }
     }
+
+    // ============================================================
+    // CLEANUP
+    // ============================================================
 
     override fun onDestroy() {
 
@@ -834,6 +908,22 @@ class MainActivity : Activity() {
             Shizuku.removeRequestPermissionResultListener(
                 permissionListener
             )
+
+        } catch (_: Throwable) {
+        }
+
+        try {
+
+            if (commandService != null) {
+
+                Shizuku.unbindUserService(
+                    userServiceArgs,
+                    serviceConnection,
+                    true
+                )
+
+                commandService = null
+            }
 
         } catch (_: Throwable) {
         }
