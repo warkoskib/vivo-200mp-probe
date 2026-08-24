@@ -11,6 +11,7 @@ android {
         applicationId = "com.example.vivo200mpprobe"
         minSdk = 29
         targetSdk = 36
+
         versionCode = 1
         versionName = "1.0"
 
@@ -33,6 +34,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            isMinifyEnabled = false
+        }
+
         release {
             isMinifyEnabled = false
 
@@ -42,10 +47,6 @@ android {
                 ),
                 "proguard-rules.pro"
             )
-        }
-
-        debug {
-            isMinifyEnabled = false
         }
     }
 
@@ -59,31 +60,29 @@ android {
 dependencies {
 
     implementation(
-        "androidx.core:core-ktx:1.17.0"
+        "androidx.core:core-ktx:1.15.0"
     )
 
     implementation(
-        "androidx.appcompat:appcompat:1.7.1"
+        "androidx.appcompat:appcompat:1.7.0"
     )
 
     implementation(
-        "com.google.android.material:material:1.13.0"
+        "com.google.android.material:material:1.12.0"
     )
 
     implementation(
-        "androidx.activity:activity-ktx:1.11.0"
+        "androidx.activity:activity-ktx:1.10.1"
     )
 
     implementation(
-        "androidx.constraintlayout:constraintlayout:2.2.1"
+        "androidx.constraintlayout:constraintlayout:2.2.0"
     )
 
-    // Shizuku API
     implementation(
         "dev.rikka.shizuku:api:13.1.5"
     )
 
-    // Shizuku provider support
     implementation(
         "dev.rikka.shizuku:provider:13.1.5"
     )
@@ -93,10 +92,10 @@ dependencies {
     )
 
     androidTestImplementation(
-        "androidx.test.ext:junit:1.3.0"
+        "androidx.test.ext:junit:1.2.1"
     )
 
     androidTestImplementation(
-        "androidx.test.espresso:espresso-core:3.7.0"
+        "androidx.test.espresso:espresso-core:3.6.1"
     )
 }
