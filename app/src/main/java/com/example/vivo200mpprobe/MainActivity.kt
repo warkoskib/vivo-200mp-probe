@@ -1,127 +1,40 @@
 package com.example.vivo200mpprobe
 
-import android.content.ComponentName
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.content.ServiceConnection
+import android.content.pm.PackageManager
 import android.os.Bundle
-import android.os.IBinder
-import android.text.method.ScrollingMovementMethod
-import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import rikka.shizuku.Shizuku
+import rikka.shizuku.ShizukuRemoteProcess
+import java.io.BufferedReader
+import java.io.InputStreamReader
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var outputText: TextView
-
-    private var commandService: ICommandService? = null
-
-    private var serviceBound = false
-
-    // ------------------------------------------------------------
-    // SHIZUKU USER SERVICE
-    // ------------------------------------------------------------
-
-    private val userServiceArgs by lazy {
-
-        Shizuku.UserServiceArgs(
-            ComponentName(
-                packageName,
-                ShellUserService::class.java.name
-            )
-        )
-            .daemon(false)
-            .processNameSuffix("vivo_shell")
-            .debuggable(BuildConfig.DEBUG)
-            .version(1)
+    companion object {
+        private const val SHIZUKU_PERMISSION_CODE = 1001
     }
 
-    // ------------------------------------------------------------
-    // SERVICE CONNECTION
-    // ------------------------------------------------------------
+    private lateinit var outputText: TextView
 
-    private val serviceConnection =
-        object : ServiceConnection {
-
-            override fun onServiceConnected(
-                name: ComponentName?,
-                binder: IBinder?
-            ) {
-
-                commandService =
-                    ICommandService.Stub.asInterface(binder)
-
-                serviceBound = true
-
-                log("")
-                log("==============================")
-                log("SHIZUKU SHELL SERVICE CONNECTED")
-                log("==============================")
-
-                try {
-
-                    val service = commandService
-
-                    if (service != null) {
-
-                        val uid = service.uid()
-                        val pid = service.pid()
-
-                        log("Service UID = $uid")
-                        log("Service PID = $pid")
-
-                        if (uid == 2000) {
-
-                            log("")
-                            log("*** SHELL ACCESS CONFIRMED ***")
-
-                        } else {
-
-                            log("")
-                            log(
-                                "WARNING: expected shell UID 2000, got $uid"
-                            )
-                        }
-                    }
-
-                } catch (e: Throwable) {
-
-                    log(
-                        "Service test failed: " +
-                            "${e.javaClass.simpleName}: ${e.message}"
-                    )
-                }
-            }
-
-            override fun onServiceDisconnected(
-                name: ComponentName?
-            ) {
-
-                commandService = null
-                serviceBound = false
-
-                log("")
-                log("SHIZUKU SHELL SERVICE DISCONNECTED")
-            }
-        }
-
-    // ------------------------------------------------------------
-    // SHIZUKU BINDER LISTENER
-    // ------------------------------------------------------------
+    // ============================================================
+    // SHIZUKU LISTENERS
+    // ============================================================
 
     private val binderReceivedListener =
         Shizuku.OnBinderReceivedListener {
 
             runOnUiThread {
-
                 log("")
-                log("Shizuku binder received.")
-
+                log("SHIZUKU BINDER RECEIVED")
                 checkShizuku()
             }
         }
@@ -130,18 +43,10 @@ class MainActivity : AppCompatActivity() {
         Shizuku.OnBinderDeadListener {
 
             runOnUiThread {
-
-                commandService = null
-                serviceBound = false
-
                 log("")
-                log("Shizuku binder died.")
+                log("SHIZUKU BINDER DISCONNECTED")
             }
         }
-
-    // ------------------------------------------------------------
-    // PERMISSION RESULT
-    // ------------------------------------------------------------
 
     private val permissionResultListener =
         Shizuku.OnRequestPermissionResultListener {
@@ -159,22 +64,21 @@ class MainActivity : AppCompatActivity() {
 
                     if (
                         grantResult ==
-                        android.content.pm.PackageManager.PERMISSION_GRANTED
+                        PackageManager.PERMISSION_GRANTED
                     ) {
-
-                        log("Permission GRANTED.")
-
+                        log("Permission = GRANTED")
                     } else {
-
-                        log("Permission DENIED.")
+                        log("Permission = DENIED")
                     }
+
+                    checkShizuku()
                 }
             }
         }
 
-    // ------------------------------------------------------------
-    // CREATE
-    // ------------------------------------------------------------
+    // ============================================================
+    // ACTIVITY
+    // ============================================================
 
     override fun onCreate(
         savedInstanceState: Bundle?
@@ -182,37 +86,44 @@ class MainActivity : AppCompatActivity() {
 
         super.onCreate(savedInstanceState)
 
-        Shizuku.addBinderReceivedListenerSticky(
-            binderReceivedListener
-        )
+        buildUi()
 
-        Shizuku.addBinderDeadListener(
-            binderDeadListener
-        )
+        try {
 
-        Shizuku.addRequestPermissionResultListener(
-            permissionResultListener
-        )
+            Shizuku.addBinderReceivedListenerSticky(
+                binderReceivedListener
+            )
 
-        buildInterface()
+            Shizuku.addBinderDeadListener(
+                binderDeadListener
+            )
 
-        log("==============================")
+            Shizuku.addRequestPermissionResultListener(
+                permissionResultListener
+            )
+
+        } catch (e: Throwable) {
+
+            log("Shizuku listener setup error:")
+            log("${e.javaClass.name}: ${e.message}")
+        }
+
         log("VIVO CAMERA SHIZUKU PROBE")
-        log("==============================")
+        log("==========================")
         log("")
-        log(
-            "This app runs shell-level Vivo camera diagnostics through Shizuku."
-        )
+        log("No AIDL/UserService is used.")
+        log("Commands execute through the")
+        log("Shizuku remote-process interface.")
         log("")
         log("Start with:")
         log("1 - CHECK SHIZUKU")
     }
 
-    // ------------------------------------------------------------
-    // USER INTERFACE
-    // ------------------------------------------------------------
+    // ============================================================
+    // UI
+    // ============================================================
 
-    private fun buildInterface() {
+    private fun buildUi() {
 
         val root =
             LinearLayout(this).apply {
@@ -221,22 +132,22 @@ class MainActivity : AppCompatActivity() {
                     LinearLayout.VERTICAL
 
                 setPadding(
-                    16,
-                    16,
-                    16,
-                    16
+                    18,
+                    18,
+                    18,
+                    18
                 )
             }
 
         fun addButton(
-            title: String,
+            textValue: String,
             action: () -> Unit
         ) {
 
             val button =
                 Button(this).apply {
 
-                    text = title
+                    text = textValue
 
                     setOnClickListener {
                         action()
@@ -265,9 +176,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         addButton(
-            "3 - CONNECT SHELL SERVICE"
+            "3 - TEST SHELL"
         ) {
-            connectShellService()
+            testShell()
         }
 
         addButton(
@@ -291,7 +202,7 @@ class MainActivity : AppCompatActivity() {
         addButton(
             "7 - CAMERA PROPERTIES"
         ) {
-            cameraProperties()
+            dumpCameraProperties()
         }
 
         addButton(
@@ -307,6 +218,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         addButton(
+            "10 - START 200MP LOG WATCH"
+        ) {
+            start200MpWatch()
+        }
+
+        addButton(
             "OPEN VIVO CAMERA"
         ) {
             openVivoCamera()
@@ -315,46 +232,28 @@ class MainActivity : AppCompatActivity() {
         addButton(
             "COPY OUTPUT"
         ) {
-
-            val clipboard =
-                getSystemService(
-                    Context.CLIPBOARD_SERVICE
-                ) as android.content.ClipboardManager
-
-            clipboard.setPrimaryClip(
-                android.content.ClipData.newPlainText(
-                    "Vivo Camera Probe",
-                    outputText.text
-                )
-            )
-
-            log("")
-            log("[OUTPUT COPIED]")
+            copyOutput()
         }
 
         addButton(
             "CLEAR OUTPUT"
         ) {
-
             outputText.text = ""
         }
 
         outputText =
             TextView(this).apply {
 
-                textSize = 14f
-
-                setPadding(
-                    4,
-                    24,
-                    4,
-                    40
-                )
+                textSize = 13f
 
                 setTextIsSelectable(true)
 
-                movementMethod =
-                    ScrollingMovementMethod()
+                setPadding(
+                    4,
+                    20,
+                    4,
+                    120
+                )
             }
 
         root.addView(
@@ -365,18 +264,17 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
-        val scrollView =
+        val scroll =
             ScrollView(this).apply {
-
                 addView(root)
             }
 
-        setContentView(scrollView)
+        setContentView(scroll)
     }
 
-    // ------------------------------------------------------------
-    // CHECK SHIZUKU
-    // ------------------------------------------------------------
+    // ============================================================
+    // SHIZUKU STATUS
+    // ============================================================
 
     private fun checkShizuku() {
 
@@ -394,49 +292,53 @@ class MainActivity : AppCompatActivity() {
 
             if (!alive) {
 
-                log("Shizuku is not running.")
+                log("Shizuku is NOT connected.")
                 return
             }
 
             log("Shizuku is RUNNING.")
-
-            val version =
-                Shizuku.getVersion()
-
-            log("Shizuku version = $version")
-
-            val uid =
-                Shizuku.getUid()
-
-            log("Shizuku UID = $uid")
+            log("Version = ${Shizuku.getVersion()}")
+            log("Server UID = ${Shizuku.getUid()}")
 
             val permission =
                 Shizuku.checkSelfPermission()
 
-            log(
-                "Permission = " +
-                    if (
-                        permission ==
-                        android.content.pm.PackageManager.PERMISSION_GRANTED
-                    ) {
-                        "GRANTED"
-                    } else {
-                        "NOT GRANTED"
-                    }
-            )
+            if (
+                permission ==
+                PackageManager.PERMISSION_GRANTED
+            ) {
+
+                log("App permission = GRANTED")
+
+            } else {
+
+                log("App permission = NOT GRANTED")
+            }
+
+            when (Shizuku.getUid()) {
+
+                2000 ->
+                    log("Backend = ADB / SHELL")
+
+                0 ->
+                    log("Backend = ROOT")
+
+                else ->
+                    log(
+                        "Backend UID = ${Shizuku.getUid()}"
+                    )
+            }
 
         } catch (e: Throwable) {
 
-            log(
-                "SHIZUKU ERROR: " +
-                    "${e.javaClass.name}: ${e.message}"
-            )
+            log("SHIZUKU ERROR:")
+            log("${e.javaClass.name}: ${e.message}")
         }
     }
 
-    // ------------------------------------------------------------
-    // REQUEST SHIZUKU PERMISSION
-    // ------------------------------------------------------------
+    // ============================================================
+    // PERMISSION
+    // ============================================================
 
     private fun requestShizukuPermission() {
 
@@ -455,155 +357,139 @@ class MainActivity : AppCompatActivity() {
 
             if (
                 Shizuku.checkSelfPermission() ==
-                android.content.pm.PackageManager.PERMISSION_GRANTED
+                PackageManager.PERMISSION_GRANTED
             ) {
 
                 log("Permission already granted.")
                 return
             }
 
-            if (
-                Shizuku.shouldShowRequestPermissionRationale()
-            ) {
-
-                log(
-                    "Permission was previously denied."
-                )
-            }
-
-            log("Requesting permission...")
-
             Shizuku.requestPermission(
                 SHIZUKU_PERMISSION_CODE
             )
 
-        } catch (e: Throwable) {
-
-            log(
-                "PERMISSION ERROR: " +
-                    "${e.javaClass.name}: ${e.message}"
-            )
-        }
-    }
-
-    // ------------------------------------------------------------
-    // CONNECT USER SERVICE
-    // ------------------------------------------------------------
-
-    private fun connectShellService() {
-
-        log("")
-        log("==============================")
-        log("CONNECT SHELL SERVICE")
-        log("==============================")
-
-        try {
-
-            if (!Shizuku.pingBinder()) {
-
-                log("ERROR: Shizuku is not running.")
-                return
-            }
-
-            if (
-                Shizuku.checkSelfPermission() !=
-                android.content.pm.PackageManager.PERMISSION_GRANTED
-            ) {
-
-                log(
-                    "ERROR: Shizuku permission not granted."
-                )
-
-                return
-            }
-
-            if (serviceBound) {
-
-                log(
-                    "Shell service is already connected."
-                )
-
-                return
-            }
-
-            log(
-                "Binding ShellUserService..."
-            )
-
-            Shizuku.bindUserService(
-                userServiceArgs,
-                serviceConnection
-            )
+            log("Permission request sent.")
 
         } catch (e: Throwable) {
 
-            log(
-                "SERVICE ERROR: " +
-                    "${e.javaClass.name}: ${e.message}"
-            )
+            log("Permission request error:")
+            log("${e.javaClass.name}: ${e.message}")
         }
     }
 
-    // ------------------------------------------------------------
-    // EXECUTE SHELL COMMAND
-    // ------------------------------------------------------------
+    // ============================================================
+    // SHIZUKU REMOTE PROCESS
+    // ============================================================
+
+    private fun createShizukuProcess(
+        command: String
+    ): ShizukuRemoteProcess {
+
+        /*
+         * Shizuku.newProcess(...) exists in API 13,
+         * but is not publicly exposed in the current source.
+         *
+         * We call it reflectively.
+         */
+
+        val method =
+            Shizuku::class.java.getDeclaredMethod(
+                "newProcess",
+                Array<String>::class.java,
+                Array<String>::class.java,
+                String::class.java
+            )
+
+        method.isAccessible = true
+
+        val commandArray =
+            arrayOf(
+                "/system/bin/sh",
+                "-c",
+                command
+            )
+
+        @Suppress("UNCHECKED_CAST")
+        return method.invoke(
+            null,
+            commandArray,
+            null,
+            null
+        ) as ShizukuRemoteProcess
+    }
+
+    // ============================================================
+    // RUN COMMAND
+    // ============================================================
 
     private fun runShellCommand(
-        command: String,
-        title: String
+        title: String,
+        command: String
     ) {
 
         log("")
         log("==============================")
         log(title)
         log("==============================")
+
+        if (!ensureShizukuReady()) {
+            return
+        }
+
         log("")
         log("$ $command")
         log("")
 
-        val service =
-            commandService
-
-        if (service == null) {
-
-            log(
-                "ERROR: Shell service is not connected."
-            )
-
-            log(
-                "Press 3 - CONNECT SHELL SERVICE first."
-            )
-
-            return
-        }
-
         Thread {
+
+            var process:
+                ShizukuRemoteProcess? = null
 
             try {
 
-                /*
-                 * ICommandService now uses byte[] instead
-                 * of String.
-                 */
-
-                val commandBytes =
-                    command.toByteArray(
-                        Charsets.UTF_8
+                process =
+                    createShizukuProcess(
+                        command
                     )
 
-                val resultBytes =
-                    service.runCommand(
-                        commandBytes
+                val stdoutReader =
+                    BufferedReader(
+                        InputStreamReader(
+                            process.inputStream
+                        )
                     )
 
-                val result =
-                    resultBytes?.toString(
-                        Charsets.UTF_8
-                    ) ?: "[NULL RESULT]"
+                val stderrReader =
+                    BufferedReader(
+                        InputStreamReader(
+                            process.errorStream
+                        )
+                    )
+
+                val stdout =
+                    stdoutReader.readText()
+
+                val stderr =
+                    stderrReader.readText()
+
+                val exitCode =
+                    process.waitFor()
 
                 runOnUiThread {
 
-                    log(result)
+                    if (stdout.isNotBlank()) {
+                        log(stdout.trimEnd())
+                    }
+
+                    if (stderr.isNotBlank()) {
+
+                        log("")
+                        log("--- STDERR ---")
+                        log(stderr.trimEnd())
+                    }
+
+                    log("")
+                    log("Exit code = $exitCode")
                 }
 
             } catch (e: Throwable) {
@@ -611,210 +497,290 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
 
                     log("")
-                    log("COMMAND ERROR:")
+                    log("COMMAND FAILED")
+                    log("${e.javaClass.name}: ${e.message}")
 
-                    log(
-                        "${e.javaClass.name}: ${e.message}"
-                    )
+                    e.cause?.let {
+
+                        log(
+                            "Cause: ${it.javaClass.name}: ${it.message}"
+                        )
+                    }
+                }
+
+            } finally {
+
+                try {
+                    process?.destroy()
+                } catch (_: Throwable) {
                 }
             }
 
         }.start()
     }
 
-    // ------------------------------------------------------------
+    private fun ensureShizukuReady(): Boolean {
+
+        try {
+
+            if (!Shizuku.pingBinder()) {
+
+                log("ERROR: Shizuku binder is not alive.")
+                return false
+            }
+
+            if (
+                Shizuku.checkSelfPermission() !=
+                PackageManager.PERMISSION_GRANTED
+            ) {
+
+                log(
+                    "ERROR: Shizuku permission has not been granted."
+                )
+
+                log(
+                    "Press 2 - REQUEST SHIZUKU ACCESS."
+                )
+
+                return false
+            }
+
+            return true
+
+        } catch (e: Throwable) {
+
+            log(
+                "Shizuku readiness check failed:"
+            )
+
+            log(
+                "${e.javaClass.name}: ${e.message}"
+            )
+
+            return false
+        }
+    }
+
+    // ============================================================
+    // TEST SHELL
+    // ============================================================
+
+    private fun testShell() {
+
+        runShellCommand(
+            "TEST SHELL ACCESS",
+            """
+            echo "===== WHOAMI ====="
+            whoami
+
+            echo ""
+            echo "===== ID ====="
+            id
+
+            echo ""
+            echo "===== PROCESS ====="
+            echo $$
+            """.trimIndent()
+        )
+    }
+
+    // ============================================================
     // CAMERA DIAGNOSTICS
-    // ------------------------------------------------------------
+    // ============================================================
 
     private fun runCameraDiagnostics() {
 
-        val command = """
-
-            echo "=============================="
-            echo "IDENTITY"
-            echo "=============================="
-            id
-            echo
-
-            echo "=============================="
-            echo "CAMERA SERVICE"
-            echo "=============================="
-            dumpsys media.camera 2>&1
-            echo
-
-            echo "=============================="
-            echo "VIVO CAMERA PROCESS"
-            echo "=============================="
-            ps -A | grep -i camera
-            echo
-
-            echo "=============================="
-            echo "CAMERA PROVIDER"
-            echo "=============================="
-            ps -A | grep -i provider
-            echo
-
-        """.trimIndent()
-
         runShellCommand(
-            command,
-            "CAMERA DIAGNOSTICS"
+            "CAMERA DIAGNOSTICS",
+            """
+            echo "===== IDENTITY ====="
+            id
+
+            echo ""
+            echo "===== CAMERA SERVICE ====="
+            dumpsys media.camera 2>&1
+
+            echo ""
+            echo "===== CAMERA PROCESSES ====="
+            ps -A | grep -Ei 'camera|vcf|vif|vivo|mtk|mediatek'
+
+            echo ""
+            echo "===== CAMERA SERVICES ====="
+            service list | grep -Ei 'camera|media'
+            """.trimIndent()
         )
     }
 
-    // ------------------------------------------------------------
-    // DUMP CAMERA PACKAGE
-    // ------------------------------------------------------------
+    // ============================================================
+    // PACKAGE DUMP
+    // ============================================================
 
     private fun dumpVivoCameraPackage() {
 
-        val command = """
-
-            echo "=============================="
-            echo "VIVO CAMERA PACKAGE"
-            echo "=============================="
-
+        runShellCommand(
+            "VIVO CAMERA PACKAGE",
+            """
+            echo "===== PACKAGE ====="
             dumpsys package com.android.camera
 
-            echo
-            echo "=============================="
-            echo "APK PATH"
-            echo "=============================="
-
+            echo ""
+            echo "===== APK PATH ====="
             pm path com.android.camera
 
-        """.trimIndent()
-
-        runShellCommand(
-            command,
-            "VIVO CAMERA PACKAGE DUMP"
+            echo ""
+            echo "===== UID / PERMISSIONS ====="
+            dumpsys package com.android.camera \
+            | grep -Ei \
+            'userId|uid=|sharedUser|permission|SYSTEM_CAMERA|WRITE_SECURE|signature'
+            """.trimIndent()
         )
     }
 
-    // ------------------------------------------------------------
-    // FILESYSTEM SCAN
-    // ------------------------------------------------------------
+    // ============================================================
+    // CAMERA FILESYSTEM
+    // ============================================================
 
     private fun scanCameraFilesystem() {
 
-        val command = """
+        runShellCommand(
+            "CAMERA FILESYSTEM SCAN",
+            """
+            echo "===== DATA VENDOR CAMERA ====="
 
-            echo "=============================="
-            echo "CAMERA DIRECTORY SCAN"
-            echo "=============================="
+            ls -la /data/vendor/camera 2>&1
 
-            echo
-            echo "--- DCIM CAMERA ---"
-            ls -lah /sdcard/DCIM/Camera 2>&1
+            echo ""
+            echo "===== RECENT DATA/VENDOR CAMERA FILES ====="
 
-            echo
-            echo "--- RECENT CAMERA FILES ---"
-
-            find /sdcard/DCIM/Camera \
+            find /data/vendor/camera \
             -type f \
-            -mmin -10 \
+            -mmin -30 \
             -exec ls -lah {} \; \
-            2>&1
+            2>/dev/null \
+            | head -n 500
 
-            echo
-            echo "--- RAW / DNG / BIN / YUV SEARCH ---"
+            echo ""
+            echo "===== VENDOR CAMERA CONFIG ====="
+
+            find /vendor/etc \
+            -maxdepth 5 \
+            \( \
+            -iname '*camera*' \
+            -o -iname '*sensor*' \
+            -o -iname '*raw*' \
+            -o -iname '*remosaic*' \
+            -o -iname '*vcf*' \
+            -o -iname '*vif*' \
+            \) \
+            2>/dev/null \
+            | head -n 1000
+
+            echo ""
+            echo "===== ODM CAMERA CONFIG ====="
+
+            find /odm/etc \
+            -maxdepth 5 \
+            \( \
+            -iname '*camera*' \
+            -o -iname '*sensor*' \
+            -o -iname '*raw*' \
+            -o -iname '*remosaic*' \
+            -o -iname '*vcf*' \
+            -o -iname '*vif*' \
+            \) \
+            2>/dev/null \
+            | head -n 1000
+
+            echo ""
+            echo "===== SHARED RAW-LIKE FILES ====="
 
             find /sdcard \
             -type f \
             \( \
-            -iname "*.dng" \
-            -o -iname "*.raw" \
-            -o -iname "*.bin" \
-            -o -iname "*.yuv" \
-            -o -iname "*.raw10" \
-            -o -iname "*.raw16" \
+            -iname '*.raw' \
+            -o -iname '*.dng' \
+            -o -iname '*.yuv' \
+            -o -iname '*.bin' \
+            -o -iname '*.raw10' \
+            -o -iname '*.raw16' \
             \) \
-            2>/dev/null | head -200
-
-        """.trimIndent()
-
-        runShellCommand(
-            command,
-            "CAMERA FILESYSTEM SCAN"
+            2>/dev/null \
+            | head -n 500
+            """.trimIndent()
         )
     }
 
-    // ------------------------------------------------------------
+    // ============================================================
     // CAMERA PROPERTIES
-    // ------------------------------------------------------------
+    // ============================================================
 
-    private fun cameraProperties() {
-
-        val command = """
-
-            echo "=============================="
-            echo "CAMERA PROPERTIES"
-            echo "=============================="
-
-            getprop | grep -i camera
-
-            echo
-            echo "=============================="
-            echo "VIVO PROPERTIES"
-            echo "=============================="
-
-            getprop | grep -i vivo
-
-            echo
-            echo "=============================="
-            echo "MEDIATEK CAMERA PROPERTIES"
-            echo "=============================="
-
-            getprop | grep -Ei "mtk|mediatek" | grep -i camera
-
-        """.trimIndent()
+    private fun dumpCameraProperties() {
 
         runShellCommand(
-            command,
-            "CAMERA PROPERTIES"
-        )
-    }
-
-    // ------------------------------------------------------------
-    // CAMERA LOGCAT
-    // ------------------------------------------------------------
-
-    private fun recentCameraLogcat() {
-
-        val command = """
-
-            echo "=============================="
-            echo "RECENT CAMERA LOGCAT"
-            echo "=============================="
-
-            logcat -d -v threadtime \
+            "CAMERA PROPERTIES",
+            """
+            getprop \
             | grep -Ei \
-            "camera|vivo|vcf|raw|dng|remosaic|200mp|sensor|jpeg|heic|imagewriter|imagereader" \
-            | tail -1500
-
-        """.trimIndent()
-
-        runShellCommand(
-            command,
-            "RECENT CAMERA LOGCAT"
+            'camera|vivo|sensor|raw|remosaic|vcf|vif|mtk|mediatek'
+            """.trimIndent()
         )
     }
 
-    // ------------------------------------------------------------
-    // CLEAR LOGCAT
-    // ------------------------------------------------------------
+    // ============================================================
+    // LOGCAT
+    // ============================================================
 
     private fun clearLogcat() {
 
         runShellCommand(
-            "logcat -c && echo LOGCAT CLEARED",
-            "CLEAR LOGCAT"
+            "CLEAR LOGCAT",
+            """
+            logcat -c
+            echo "LOGCAT CLEARED"
+            """.trimIndent()
         )
     }
 
-    // ------------------------------------------------------------
+    private fun recentCameraLogcat() {
+
+        runShellCommand(
+            "RECENT CAMERA LOGCAT",
+            """
+            logcat -d -v threadtime \
+            | grep -Ei \
+            '200mp|200 mp|remosaic|rawvif|raw vif|vif|vcf|raw10|raw16|proraw|SaveRaw|SaveProRaw|sensorMode|sensorScenario|fullsize|highresolution|high_resolution|niceCaptureSensorMode|real200mp|camera3|com.android.camera' \
+            | tail -n 5000
+            """.trimIndent()
+        )
+    }
+
+    // ============================================================
+    // 200 MP LIVE WATCH
+    // ============================================================
+
+    private fun start200MpWatch() {
+
+        runShellCommand(
+            "200 MP LOG WATCH PREP",
+            """
+            logcat -c
+
+            echo "LOGCAT CLEARED"
+            echo ""
+            echo "NOW:"
+            echo "1. Open Vivo Camera"
+            echo "2. Select 200 MP"
+            echo "3. Take ONE photo"
+            echo "4. Wait for processing"
+            echo "5. Return to probe"
+            echo "6. Press RECENT CAMERA LOGCAT"
+            """.trimIndent()
+        )
+    }
+
+    // ============================================================
     // OPEN OEM CAMERA
-    // ------------------------------------------------------------
+    // ============================================================
 
     private fun openVivoCamera() {
 
@@ -831,78 +797,93 @@ class MainActivity : AppCompatActivity() {
                         "com.android.camera"
                     )
 
-            if (intent == null) {
+            if (intent != null) {
 
-                log(
-                    "Could not obtain launch intent for com.android.camera"
+                intent.addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK
                 )
+
+                startActivity(intent)
+
+                log("Vivo Camera launched.")
 
                 return
             }
 
-            intent.addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK
+            val explicit =
+                Intent().apply {
+
+                    setClassName(
+                        "com.android.camera",
+                        "com.android.camera.CameraActivity"
+                    )
+
+                    addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK
+                    )
+                }
+
+            startActivity(explicit)
+
+            log(
+                "Vivo CameraActivity launched."
             )
-
-            startActivity(intent)
-
-            log("Vivo Camera launched.")
-
-            log("")
-            log("For the next RAW test:")
-            log("1. Select 200 MP")
-            log("2. Take ONE photograph")
-            log("3. Wait for processing")
-            log("4. Return here")
-            log("5. Press RECENT CAMERA LOGCAT")
 
         } catch (e: Throwable) {
 
-            log(
-                "CAMERA LAUNCH ERROR: " +
-                    "${e.javaClass.name}: ${e.message}"
-            )
+            log("CAMERA LAUNCH ERROR:")
+            log("${e.javaClass.name}: ${e.message}")
         }
     }
 
-    // ------------------------------------------------------------
+    // ============================================================
+    // COPY
+    // ============================================================
+
+    private fun copyOutput() {
+
+        val clipboard =
+            getSystemService(
+                Context.CLIPBOARD_SERVICE
+            ) as ClipboardManager
+
+        clipboard.setPrimaryClip(
+            ClipData.newPlainText(
+                "Vivo Camera Shizuku Probe",
+                outputText.text.toString()
+            )
+        )
+
+        Toast.makeText(
+            this,
+            "Output copied",
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    // ============================================================
     // LOG
-    // ------------------------------------------------------------
+    // ============================================================
 
     private fun log(
         message: String
     ) {
 
-        outputText.append(
-            message
-        )
+        runOnUiThread {
 
-        outputText.append(
-            "\n"
-        )
+            outputText.append(message)
+
+            if (!message.endsWith("\n")) {
+                outputText.append("\n")
+            }
+        }
     }
 
-    // ------------------------------------------------------------
-    // DESTROY
-    // ------------------------------------------------------------
+    // ============================================================
+    // CLEANUP
+    // ============================================================
 
     override fun onDestroy() {
-
-        try {
-
-            if (serviceBound) {
-
-                Shizuku.unbindUserService(
-                    userServiceArgs,
-                    serviceConnection,
-                    true
-                )
-
-                serviceBound = false
-            }
-
-        } catch (_: Throwable) {
-        }
 
         try {
 
@@ -922,11 +903,5 @@ class MainActivity : AppCompatActivity() {
         }
 
         super.onDestroy()
-    }
-
-    companion object {
-
-        private const val SHIZUKU_PERMISSION_CODE =
-            1001
     }
 }
