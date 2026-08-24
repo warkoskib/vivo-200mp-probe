@@ -7,7 +7,7 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.util.concurrent.TimeUnit
 
-class ShellUserService : ICommandService.Stub {
+class ShellUserService : ICommandService.Stub() {
 
     constructor()
 
@@ -26,7 +26,7 @@ class ShellUserService : ICommandService.Stub {
 
         return try {
 
-            val process =
+            val shellProcess =
                 ProcessBuilder(
                     "/system/bin/sh",
                     "-c",
@@ -38,7 +38,7 @@ class ShellUserService : ICommandService.Stub {
             val reader =
                 BufferedReader(
                     InputStreamReader(
-                        process.inputStream
+                        shellProcess.inputStream
                     )
                 )
 
@@ -56,14 +56,15 @@ class ShellUserService : ICommandService.Stub {
                 result.append('\n')
             }
 
-            process.waitFor(
-                25,
-                TimeUnit.SECONDS
-            )
+            val finished =
+                shellProcess.waitFor(
+                    25,
+                    TimeUnit.SECONDS
+                )
 
-            if (process.isAlive) {
+            if (!finished) {
 
-                process.destroyForcibly()
+                shellProcess.destroyForcibly()
 
                 result.append(
                     "\n[TIMEOUT - PROCESS KILLED]\n"
@@ -76,9 +77,5 @@ class ShellUserService : ICommandService.Stub {
 
             "ERROR: ${e.javaClass.name}: ${e.message}"
         }
-    }
-
-    override fun destroy() {
-        System.exit(0)
     }
 }
